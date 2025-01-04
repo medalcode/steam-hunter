@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from .database import init_db, get_db, FoundCode, SteamAccount, SearchSource, NotificationConfig
+from .database import init_db, get_db, FoundCode, SteamAccount, SearchSource, NotificationConfig, ASFConfig
 from .scheduler import start_scheduler, set_websocket_manager
 
 logging.basicConfig(level=logging.INFO)
@@ -239,6 +239,128 @@ def export_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=steam_codes.csv"},
     )
+
+# ─── Validate ───────────────────────────────────────────────
+
+# ─── ASF ────────────────────────────────────────────────────
+
+class ASFConfigUpdate(BaseModel):
+    ipc_url: str = "http://localhost:1243"
+    ipc_password: str = ""
+    default_bot: str = "principal"
+    auto_redeem: bool = False
+
+class ASFRedeemRequest(BaseModel):
+    code_id: int
+    bot: str | None = None
+
+def get_asf_client(db: Session) -> tuple:
+    config = db.query(ASFConfig).first()
+    if not config:
+        config = ASFConfig()
+        db.add(config)
+        db.commit()
+    from .asf_client import ASFClient
+    return ASFClient(config.ipc_url, config.ipc_password), config
+
+@app.get("/api/config/asf")
+def get_asf_config(db: Session = Depends(get_db)):
+    config = db.query(ASFConfig).first()
+    if not config:
+        config = ASFConfig()
+        db.add(config)
+        db.commit()
+    return {
+        "ipc_url": config.ipc_url,
+        "ipc_password": bool(config.ipc_password),
+        "default_bot": config.default_bot,
+        "auto_redeem": config.auto_redeem,
+    }
+
+@app.post("/api/config/asf")
+def update_asf_config(config_in: ASFConfigUpdate, db: Session = Depends(get_db)):
+    config = db.query(ASFConfig).first()
+    if not config:
+        config = ASFConfig()
+        db.add(config)
+    config.ipc_url = config_in.ipc_url
+    config.ipc_password = config_in.ipc_password
+    config.default_bot = config_in.default_bot
+    config.auto_redeem = config_in.auto_redeem
+    db.commit()
+    return {"message": "ASF config saved"}
+
+@app.get("/api/asf/bots")
+def list_asf_bots(db: Session = Depends(get_db)):
+    client, _ = get_asf_client(db)
+    bots = client.get_bots()
+    return bots
+
+@app.post("/api/asf/redeem")
+def asf_redeem(req: ASFRedeemRequest, db: Session = Depends(get_db)):
+    client, config = get_asf_client(db)
+    bot = req.bot or config.default_bot
+
+    code_entry = db.query(FoundCode).filter(FoundCode.id == req.code_id).first()
+    if not code_entry:
+        raise HTTPException(404, "Code not found")
+    if code_entry.status == "redeemed":
+        raise HTTPException(400, "Code already redeemed")
+    if code_entry.code_type != "key":
+        raise HTTPException(400, "Only keys can be redeemed via ASF")
+
+    codes = [c.strip() for c in code_entry.code.replace(",", " ").split()]
+    results = []
+    for key in codes:
+        result = client.redeem_key(bot, key)
+        results.append({"key": key, **result})
+
+    any_success = any(r["success"] for r in results)
+    if any_success:
+        code_entry.status = "redeemed"
+        code_entry.redeemed_at = datetime.now(timezone.utc)
+    else:
+        code_entry.status = "failed"
+        code_entry.error_message = results[0].get("message", "ASF redeem failed") if results else "No keys"
+
+    db.commit()
+
+    manager.broadcast({"type": "redeem_result", "code_id": req.code_id, "status": code_entry.status})
+
+    return {"results": results, "final_status": code_entry.status}
+
+@app.post("/api/asf/redeem-all")
+def asf_redeem_all(bot: str | None = None, db: Session = Depends(get_db)):
+    client, config = get_asf_client(db)
+    bot_name = bot or config.default_bot
+
+    pending = db.query(FoundCode).filter(
+        FoundCode.code_type == "key",
+        FoundCode.status == "new",
+    ).limit(20).all()
+
+    results = []
+    for code_entry in pending:
+        codes = [c.strip() for c in code_entry.code.replace(",", " ").split()]
+        for key in codes:
+            result = client.redeem_key(bot_name, key)
+            results.append({"code_id": code_entry.id, "key": key, **result})
+            if result.get("success"):
+                code_entry.status = "redeemed"
+                code_entry.redeemed_at = datetime.now(timezone.utc)
+            elif result.get("status") == "duplicate":
+                code_entry.status = "failed"
+                code_entry.error_message = result["message"]
+            else:
+                code_entry.status = "failed"
+                code_entry.error_message = result.get("message", "Unknown error")
+
+    db.commit()
+
+    if results:
+        manager.broadcast({"type": "bulk_redeem", "count": len(results)})
+
+    return {"total": len(pending), "results": results}
 
 # ─── Validate ───────────────────────────────────────────────
 

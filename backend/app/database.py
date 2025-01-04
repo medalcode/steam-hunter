@@ -57,6 +57,15 @@ class NotificationConfig(Base):
     notify_on_redeem = Column(Boolean, default=False)
     notify_on_fail = Column(Boolean, default=True)
 
+class ASFConfig(Base):
+    __tablename__ = "asf_config"
+
+    id = Column(Integer, primary_key=True)
+    ipc_url = Column(String(256), default="http://localhost:1243")
+    ipc_password = Column(String(256), default="")
+    default_bot = Column(String(100), default="principal")
+    auto_redeem = Column(Boolean, default=False)
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 

@@ -130,3 +130,43 @@ export function getExportUrl(format: "json" | "csv", status?: string, code_type?
   const qs = search.toString()
   return `${API_BASE}/api/export/${format}${qs ? "?" + qs : ""}`
 }
+
+export async function fetchASFConfig() {
+  const res = await fetch(`${API_BASE}/api/config/asf`)
+  return res.json()
+}
+
+export async function updateASFConfig(config: {
+  ipc_url: string
+  ipc_password: string
+  default_bot: string
+  auto_redeem: boolean
+}) {
+  const res = await fetch(`${API_BASE}/api/config/asf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  })
+  return res.json()
+}
+
+export async function fetchASFBots() {
+  const res = await fetch(`${API_BASE}/api/asf/bots`)
+  return res.json()
+}
+
+export async function asfRedeemCode(codeId: number, bot?: string) {
+  const res = await fetch(`${API_BASE}/api/asf/redeem`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code_id: codeId, bot }),
+  })
+  return res.json()
+}
+
+export async function asfRedeemAll(bot?: string) {
+  const res = await fetch(`${API_BASE}/api/asf/redeem-all?${bot ? `bot=${bot}` : ""}`, {
+    method: "POST",
+  })
+  return res.json()
+}

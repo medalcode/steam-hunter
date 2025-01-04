@@ -6,6 +6,7 @@ import {
   skipCode,
   validateCode,
   autoEnterGiveaway,
+  asfRedeemCode,
 } from "../api/client"
 
 interface Props {
@@ -70,6 +71,21 @@ export function CodeTable({ status, codeType }: Props) {
     setActionId(code.id)
     const result = await autoEnterGiveaway(code.code, code.title || "")
     showMsg(result.success ? `\u2728 ${result.message}` : `\u274c ${result.message}`)
+    setActionId(null)
+    load()
+  }
+
+  const handleASFRedeem = async (code: FoundCode) => {
+    setActionId(code.id)
+    const result = await asfRedeemCode(code.id)
+    if (result.results) {
+      const statuses = result.results.map((r: { success: boolean; message: string }) =>
+        r.success ? "OK" : r.message
+      ).join("; ")
+      showMsg(`ASF: ${statuses}`)
+    } else {
+      showMsg(`ASF: ${result.results?.[0]?.message || "done"}`)
+    }
     setActionId(null)
     load()
   }
@@ -156,8 +172,17 @@ export function CodeTable({ status, codeType }: Props) {
                             className="btn btn-xs btn-primary"
                             onClick={() => handleRedeem(code)}
                             disabled={actionId === code.id}
+                            title="Redeem via Steam session"
                           >
                             {actionId === code.id ? "..." : "Redeem"}
+                          </button>
+                          <button
+                            className="btn btn-xs btn-asf"
+                            onClick={() => handleASFRedeem(code)}
+                            disabled={actionId === code.id}
+                            title="Redeem via ASF"
+                          >
+                            {actionId === code.id ? "..." : "ASF"}
                           </button>
                           <button
                             className="btn btn-xs btn-outline"

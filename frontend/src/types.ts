@@ -36,3 +36,23 @@ export interface SearchSource {
   last_checked: string | null
   interval_minutes: number
 }
+
+export interface ASFConfig {
+  ipc_url: string
+  ipc_password: boolean
+  default_bot: string
+  auto_redeem: boolean
+}
+
+export interface ASFBot {
+  name: string
+  status: string
+  games: number
+}
+
+export interface ASFRedeemResult {
+  key: string
+  success: boolean
+  status: string
+  message: string
+}

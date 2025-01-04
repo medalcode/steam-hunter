@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -26,7 +27,7 @@ def start_scheduler():
     if scheduler.running:
         return
 
-    from .database import SessionLocal, FoundCode, SearchSource, SteamAccount
+    from .database import SessionLocal, FoundCode, SearchSource, SteamAccount, ASFConfig
     from .parser import parse_all
     from .scrapers.reddit import RedditScraper
     from .scrapers.steamdb import SteamDBScraper
@@ -173,6 +174,33 @@ def start_scheduler():
                     })
                 except Exception as e:
                     logger.error(f"WebSocket broadcast failed: {e}")
+
+            if new_entries:
+                keys_to_redeem = [e for e in new_entries if e.code_type == "key" and e.validation_status == "valid"]
+                if keys_to_redeem:
+                    try:
+                        asf_cfg = db.query(ASFConfig).first()
+                        if asf_cfg and asf_cfg.auto_redeem and asf_cfg.ipc_url:
+                            from .asf_client import ASFClient
+                            asf = ASFClient(asf_cfg.ipc_url, asf_cfg.ipc_password)
+                            for entry in keys_to_redeem:
+                                try:
+                                    codes = [c.strip() for c in entry.code.replace(",", " ").split()]
+                                    for key in codes:
+                                        result = asf.redeem_key(asf_cfg.default_bot, key)
+                                        if result.get("success"):
+                                            entry.status = "redeemed"
+                                            entry.redeemed_at = datetime.now(timezone.utc)
+                                            logger.info(f"ASF redeemed: {key} on {asf_cfg.default_bot}")
+                                        else:
+                                            entry.status = "failed"
+                                            entry.error_message = result.get("message", "ASF failed")
+                                            logger.warning(f"ASF failed: {key} -> {result}")
+                                        db.commit()
+                                except Exception as e:
+                                    logger.error(f"ASF redeem error for {entry.code}: {e}")
+                    except Exception as e:
+                        logger.error(f"ASF auto-redeem setup error: {e}")
 
         except Exception as e:
             logger.error(f"Scraper run failed: {e}")

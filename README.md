@@ -70,6 +70,25 @@ docker compose up -d --build
 4. Ingresar Client ID y Client Secret
 5. (Opcional) **Config > Steam Accts** — pegar cookies de store.steampowered.com
 6. (Opcional) **Config > Notifications** — Discord webhook o Telegram
+7. (Opcional) **Config > ASF** — conectar ArchiSteamFarm para auto-canjear keys
+
+## Integración ASF (ArchiSteamFarm)
+
+Steam Hunter se conecta al IPC de ArchiSteamFarm para canjear keys automáticamente:
+
+1. ASF debe estar corriendo con IPC habilitado (puerto `1242` o `1243`)
+2. En la web app ir a **Config > ASF**
+3. Ingresar URL del IPC (`http://localhost:1243`) y password si aplica
+4. Seleccionar bot por defecto (`principal`, `secundaria1`, etc.)
+5. Activar **Auto-redeem** para canjear automáticamente al detectar keys nuevas
+
+### Endpoints ASF
+
+| Ruta | Descripción |
+|---|---|
+| `GET /api/asf/bots` | Listar bots de ASF |
+| `POST /api/asf/redeem` | Canjear key via ASF |
+| `POST /api/asf/redeem-all` | Canjear todas las keys pendientes |
 
 ## API
 

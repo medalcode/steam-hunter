@@ -249,6 +249,36 @@ header h1 {
   background: var(--accent);
 }
 
+.btn-asf {
+  background: #8957e5;
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.btn-asf:hover {
+  filter: brightness(1.2);
+}
+
+.btn-xs.btn-asf {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.form-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.form-buttons .btn {
+  margin-top: 0;
+}
+
 .btn-outline {
   background: transparent;
   border: 1px solid var(--border);

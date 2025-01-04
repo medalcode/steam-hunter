@@ -8,15 +8,18 @@ import {
   deleteAccount,
   fetchNotificationConfig,
   updateNotificationConfig,
+  fetchASFConfig,
+  updateASFConfig,
+  fetchASFBots,
 } from "../api/client"
-import type { SteamAccount } from "../types"
+import type { SteamAccount, ASFBot } from "../types"
 
 interface Props {
   onClose: () => void
 }
 
 export function ConfigModal({ onClose }: Props) {
-  const [tab, setTab] = useState<"reddit" | "steam" | "notifications">("reddit")
+  const [tab, setTab] = useState<"reddit" | "steam" | "notifications" | "asf">("reddit")
   const [message, setMessage] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<SteamAccount[]>([])
 
@@ -40,6 +43,15 @@ export function ConfigModal({ onClose }: Props) {
     notify_on_fail: true,
   })
 
+  const [asfForm, setAsfForm] = useState({
+    ipc_url: "http://localhost:1243",
+    ipc_password: "",
+    default_bot: "principal",
+    auto_redeem: false,
+  })
+  const [asfBots, setAsfBots] = useState<ASFBot[]>([])
+  const [testResult, setTestResult] = useState<string | null>(null)
+
   const loadAccounts = async () => {
     const data = await fetchAccounts()
     setAccounts(data)
@@ -54,9 +66,21 @@ export function ConfigModal({ onClose }: Props) {
     }
   }
 
+  const loadASFConfig = async () => {
+    try {
+      const data = await fetchASFConfig()
+      setAsfForm({ ...data, ipc_password: "" })
+      const bots = await fetchASFBots()
+      setAsfBots(bots)
+    } catch {
+      /* ignore */
+    }
+  }
+
   useEffect(() => {
     if (tab === "steam") loadAccounts()
     if (tab === "notifications") loadNotifConfig()
+    if (tab === "asf") loadASFConfig()
   }, [tab])
 
   const showMsg = (msg: string) => {
@@ -127,6 +151,29 @@ export function ConfigModal({ onClose }: Props) {
     showMsg("Notification config saved!")
   }
 
+  const handleASFSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      await updateASFConfig(asfForm)
+      showMsg("ASF config saved!")
+      const bots = await fetchASFBots()
+      setAsfBots(bots)
+      setTestResult(`Connected! ${bots.length} bot(s) found.`)
+    } catch {
+      setTestResult("Connection failed")
+    }
+  }
+
+  const testASFConnection = async () => {
+    try {
+      const bots = await fetchASFBots()
+      setAsfBots(bots)
+      setTestResult(`Connected! ${bots.length} bot(s): ${bots.map(b => b.name).join(", ")}`)
+    } catch {
+      setTestResult("Connection failed")
+    }
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -155,6 +202,12 @@ export function ConfigModal({ onClose }: Props) {
             onClick={() => setTab("notifications")}
           >
             Notifications
+          </button>
+          <button
+            className={`tab ${tab === "asf" ? "active" : ""}`}
+            onClick={() => setTab("asf")}
+          >
+            ASF
           </button>
         </div>
 
@@ -332,6 +385,61 @@ export function ConfigModal({ onClose }: Props) {
             <button type="submit" className="btn">
               Save Notifications
             </button>
+          </form>
+        )}
+
+        {tab === "asf" && (
+          <form onSubmit={handleASFSubmit}>
+            <p className="hint">
+              Connect to ArchiSteamFarm IPC to auto-redeem keys.
+            </p>
+            <label>
+              IPC URL:
+              <input
+                value={asfForm.ipc_url}
+                onChange={(e) => setAsfForm((f) => ({ ...f, ipc_url: e.target.value }))}
+                placeholder="http://localhost:1243"
+              />
+            </label>
+            <label>
+              IPC Password (optional):
+              <input
+                type="password"
+                value={asfForm.ipc_password}
+                onChange={(e) => setAsfForm((f) => ({ ...f, ipc_password: e.target.value }))}
+                placeholder="..."
+              />
+            </label>
+            <label>
+              Default Bot:
+              <input
+                value={asfForm.default_bot}
+                onChange={(e) => setAsfForm((f) => ({ ...f, default_bot: e.target.value }))}
+                placeholder="principal"
+              />
+            </label>
+            {asfBots.length > 0 && (
+              <p className="hint">Available bots: {asfBots.map(b => b.name).join(", ")}</p>
+            )}
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={asfForm.auto_redeem}
+                onChange={(e) => setAsfForm((f) => ({ ...f, auto_redeem: e.target.checked }))}
+              />
+              Auto-redeem keys via ASF
+            </label>
+
+            <div className="form-buttons">
+              <button type="submit" className="btn">Save ASF</button>
+              <button type="button" className="btn btn-outline" onClick={testASFConnection}>Test Connection</button>
+            </div>
+
+            {testResult && (
+              <div className={`hint ${testResult.includes("failed") ? "text-red" : "text-green"}`}>
+                {testResult}
+              </div>
+            )}
           </form>
         )}
       </div>

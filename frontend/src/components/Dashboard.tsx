@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react"
 import type { Stats } from "../types"
-import { fetchStats, getWsUrl, getExportUrl } from "../api/client"
+import { fetchStats, getWsUrl, getExportUrl, asfRedeemAll, fetchASFBots } from "../api/client"
 import { CodeTable } from "./CodeTable"
 import { ConfigModal } from "./ConfigModal"
 
@@ -10,6 +10,8 @@ export function Dashboard() {
   const [showConfig, setShowConfig] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [toast, setToast] = useState<string | null>(null)
+  const [asfBots, setAsfBots] = useState<string[]>([])
+  const [redeemingAll, setRedeemingAll] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
 
   const loadStats = useCallback(async () => {
@@ -23,6 +25,7 @@ export function Dashboard() {
 
   useEffect(() => {
     loadStats()
+    fetchASFBots().then(bots => setAsfBots(bots.map((b: { name: string }) => b.name))).catch(() => {})
     const interval = setInterval(loadStats, 60000)
     return () => clearInterval(interval)
   }, [loadStats])
@@ -81,11 +84,34 @@ export function Dashboard() {
     }
   }, [toast])
 
+  const handleRedeemAll = async () => {
+    setRedeemingAll(true)
+    try {
+      const result = await asfRedeemAll()
+      setToast(`\u2728 Redeemed ${result.results?.filter((r: { success: boolean }) => r.success).length || 0} keys`)
+      loadStats()
+      setRefreshKey((k) => k + 1)
+    } catch {
+      setToast("\u274c Bulk redeem failed")
+    }
+    setRedeemingAll(false)
+  }
+
   return (
     <div className="dashboard">
       <header>
         <h1>Steam Hunter</h1>
         <div className="header-actions">
+          {asfBots.length > 0 && (
+            <button
+              className="btn btn-asf"
+              onClick={handleRedeemAll}
+              disabled={redeemingAll}
+              title="Redeem all pending keys via ASF"
+            >
+              {redeemingAll ? "..." : `Redeem All (${stats?.new || 0})`}
+            </button>
+          )}
           <div className="dropdown">
             <button className="btn">Export</button>
             <div className="dropdown-content">

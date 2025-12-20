@@ -35,6 +35,7 @@ def start_scheduler():
     from .scrapers.twitter import TwitterScraper
     from .scrapers.telegram_scraper import TelegramScraper
     from .scrapers.keysites import KeySitesScraper
+    from .scrapers.moresources import MoreSourcesScraper
     from .notifications import Notifier, NotificationConfig as NotifCfg
 
     reddit_scraper = None
@@ -44,6 +45,7 @@ def start_scheduler():
     steamgifts_scraper = SteamGiftsScraper()
     telegram_scraper = TelegramScraper()
     keysites_scraper = KeySitesScraper()
+    moresources_scraper = MoreSourcesScraper()
 
     def run_all_scrapers():
         db = SessionLocal()
@@ -61,11 +63,13 @@ def start_scheduler():
                 ("Reddit", lambda: reddit_scraper.search_recent() if reddit_scraper else []),
                 ("SteamDB Free", steamdb_scraper.get_free_promotions),
                 ("SteamDB Giveaways", steamdb_scraper.get_giveaways),
-                ("Steam Free Weekend", steam_scraper.get_free_weekends),
+                ("Steam Freebies", steam_scraper.search_freebies),
+                ("Steam F2P", steam_scraper.get_permanent_free),
                 ("SteamGifts", steamgifts_scraper.get_giveaways),
                 ("Twitter", twitter_scraper.search_giveaways),
                 ("Telegram", telegram_scraper.search_channels),
                 ("Key Sites", keysites_scraper.search_all),
+                ("CheapShark/Epic/More", moresources_scraper.search_all),
             ]
 
             for name, scrape_fn in scrapers_config:
@@ -76,20 +80,44 @@ def start_scheduler():
                 except Exception as e:
                     logger.error(f"{name} scrape failed: {e}")
 
+            GIVEAWAY_SOURCES = {
+                "gamerpower", "giveaway.su", "steamgifts",
+                "steamdb", "steam/specials", "epic/free",
+                "cheapshark/free", "cheapshark/deals",
+                "fanatical/free",
+            }
+
             new_entries = []
             for result in all_results:
                 parsed = parse_all(result.get("title", "") + " " + result.get("description", ""))
-                if not parsed["keys"] and not parsed["gift_links"] and not parsed["giveaway_links"]:
+                source_url = result.get("source_url", "")
+                title = result.get("title", "")
+                source = result.get("source", "")
+
+                has_inline = bool(parsed["keys"] or parsed["gift_links"] or parsed["giveaway_links"])
+                has_url_giveaway = bool(
+                    source_url
+                    and ("giveaway" in source_url.lower() or "gamerpower.com" in source_url.lower())
+                )
+                is_known_source = any(
+                    s in source.lower() for s in GIVEAWAY_SOURCES
+                ) or source.lower().startswith("r/")
+
+                if not has_inline and not has_url_giveaway and not is_known_source:
                     continue
 
                 existing = db.query(FoundCode).filter(
-                    FoundCode.source_url == result["source_url"],
+                    FoundCode.source_url == source_url,
                     FoundCode.status != "expired",
                 ).first()
                 if existing:
                     continue
 
-                all_codes = parsed["keys"] + parsed["gift_links"] + parsed["giveaway_links"]
+                if has_inline:
+                    all_codes = parsed["keys"] + parsed["gift_links"] + parsed["giveaway_links"]
+                else:
+                    all_codes = [source_url]
+
                 for code in all_codes:
                     code_type = (
                         "key" if "-" in code and len(code) > 10
@@ -108,8 +136,8 @@ def start_scheduler():
                         code=code,
                         code_type=code_type,
                         source=result["source"],
-                        source_url=result.get("source_url"),
-                        title=result.get("title"),
+                        source_url=source_url,
+                        title=title,
                         description=result.get("description"),
                         status="new",
                         validation_status="valid" if validation["valid"] else "invalid",

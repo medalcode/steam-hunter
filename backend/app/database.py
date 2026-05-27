@@ -32,6 +32,8 @@ class FoundCode(Base):
     found_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     redeemed_at = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
+    validation_status = Column(String(20), nullable=True)
+    validation_reason = Column(Text, nullable=True)
 
 class SearchSource(Base):
     __tablename__ = "search_sources"
@@ -43,6 +45,17 @@ class SearchSource(Base):
     enabled = Column(Boolean, default=True)
     last_checked = Column(DateTime, nullable=True)
     interval_minutes = Column(Integer, default=15)
+
+class NotificationConfig(Base):
+    __tablename__ = "notification_config"
+
+    id = Column(Integer, primary_key=True)
+    discord_webhook_url = Column(String(512), default="")
+    telegram_bot_token = Column(String(256), default="")
+    telegram_chat_id = Column(String(100), default="")
+    notify_on_new = Column(Boolean, default=True)
+    notify_on_redeem = Column(Boolean, default=False)
+    notify_on_fail = Column(Boolean, default=True)
 
 def init_db():
     Base.metadata.create_all(bind=engine)

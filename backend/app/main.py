@@ -1,17 +1,46 @@
+import csv
+import io
+import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Any
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from .database import init_db, get_db, FoundCode, SteamAccount, SearchSource
-from .scheduler import start_scheduler
+from .database import init_db, get_db, FoundCode, SteamAccount, SearchSource, NotificationConfig
+from .scheduler import start_scheduler, set_websocket_manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+class ConnectionManager:
+    def __init__(self):
+        self.active: list[WebSocket] = []
+
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self.active.append(ws)
+
+    def disconnect(self, ws: WebSocket):
+        if ws in self.active:
+            self.active.remove(ws)
+
+    def broadcast(self, data: dict):
+        for ws in self.active.copy():
+            try:
+                import asyncio
+                asyncio.create_task(ws.send_json(data))
+            except Exception:
+                self.disconnect(ws)
+
+manager = ConnectionManager()
+set_websocket_manager(manager)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,6 +71,50 @@ class ConfigSteamSession(BaseModel):
     cookies: dict
     account_name: str = "default"
 
+class AccountCreate(BaseModel):
+    name: str
+    cookies: dict
+
+class NotifConfigUpdate(BaseModel):
+    discord_webhook_url: str = ""
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    notify_on_new: bool = True
+    notify_on_redeem: bool = False
+    notify_on_fail: bool = True
+
+def code_to_dict(c: FoundCode) -> dict:
+    return {
+        "id": c.id,
+        "code": c.code,
+        "code_type": c.code_type,
+        "source": c.source,
+        "source_url": c.source_url,
+        "title": c.title,
+        "status": c.status,
+        "found_at": c.found_at.isoformat() if c.found_at else None,
+        "redeemed_at": c.redeemed_at.isoformat() if c.redeemed_at else None,
+        "error_message": c.error_message,
+        "validation_status": c.validation_status,
+        "validation_reason": c.validation_reason,
+        "steam_account_id": c.steam_account_id,
+    }
+
+# ─── WebSocket ───────────────────────────────────────────────
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    await manager.connect(ws)
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(ws)
+    except Exception:
+        manager.disconnect(ws)
+
+# ─── Codes ──────────────────────────────────────────────────
+
 @app.get("/api/codes")
 def list_codes(
     status: str | None = None,
@@ -51,30 +124,13 @@ def list_codes(
     db: Session = Depends(get_db),
 ):
     query = db.query(FoundCode).order_by(desc(FoundCode.found_at))
-
     if status:
         query = query.filter(FoundCode.status == status)
     if code_type:
         query = query.filter(FoundCode.code_type == code_type)
     if source:
         query = query.filter(FoundCode.source.ilike(f"%{source}%"))
-
-    codes = query.limit(limit).all()
-    return [
-        {
-            "id": c.id,
-            "code": c.code,
-            "code_type": c.code_type,
-            "source": c.source,
-            "source_url": c.source_url,
-            "title": c.title,
-            "status": c.status,
-            "found_at": c.found_at.isoformat() if c.found_at else None,
-            "redeemed_at": c.redeemed_at.isoformat() if c.redeemed_at else None,
-            "error_message": c.error_message,
-        }
-        for c in codes
-    ]
+    return [code_to_dict(c) for c in query.limit(limit).all()]
 
 @app.get("/api/stats")
 def get_stats(db: Session = Depends(get_db)):
@@ -103,7 +159,6 @@ def redeem_code(req: RedeemRequest, db: Session = Depends(get_db)):
     code_entry = db.query(FoundCode).filter(FoundCode.id == req.code_id).first()
     if not code_entry:
         raise HTTPException(404, "Code not found")
-
     if code_entry.status == "redeemed":
         raise HTTPException(400, "Code already redeemed")
 
@@ -111,7 +166,6 @@ def redeem_code(req: RedeemRequest, db: Session = Depends(get_db)):
         SteamAccount.id == (req.account_id or 1),
         SteamAccount.is_active == True,
     ).first()
-
     if not account or not account.session_cookies:
         raise HTTPException(400, "No active Steam account with session cookies configured")
 
@@ -121,7 +175,6 @@ def redeem_code(req: RedeemRequest, db: Session = Depends(get_db)):
     if result["success"]:
         code_entry.status = "redeemed"
         code_entry.steam_account_id = account.id
-        from datetime import datetime, timezone
         code_entry.redeemed_at = datetime.now(timezone.utc)
     else:
         code_entry.status = "failed"
@@ -130,43 +183,155 @@ def redeem_code(req: RedeemRequest, db: Session = Depends(get_db)):
     db.commit()
     return result
 
+@app.post("/api/codes/{code_id}/skip")
+def skip_code(code_id: int, db: Session = Depends(get_db)):
+    code = db.query(FoundCode).filter(FoundCode.id == code_id).first()
+    if not code:
+        raise HTTPException(404, "Code not found")
+    code.status = "expired"
+    db.commit()
+    return {"message": "Code skipped"}
+
+# ─── Export ─────────────────────────────────────────────────
+
+@app.get("/api/export/json")
+def export_json(
+    status: str | None = None,
+    code_type: str | None = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(FoundCode).order_by(desc(FoundCode.found_at))
+    if status:
+        query = query.filter(FoundCode.status == status)
+    if code_type:
+        query = query.filter(FoundCode.code_type == code_type)
+
+    codes = [code_to_dict(c) for c in query.all()]
+    return StreamingResponse(
+        io.StringIO(json.dumps(codes, indent=2, default=str)),
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=steam_codes.json"},
+    )
+
+@app.get("/api/export/csv")
+def export_csv(
+    status: str | None = None,
+    code_type: str | None = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(FoundCode).order_by(desc(FoundCode.found_at))
+    if status:
+        query = query.filter(FoundCode.status == status)
+    if code_type:
+        query = query.filter(FoundCode.code_type == code_type)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["id", "code", "type", "source", "title", "status", "found_at", "redeemed_at", "validation"])
+    for c in query.all():
+        writer.writerow([
+            c.id, c.code, c.code_type, c.source, c.title,
+            c.status, c.found_at, c.redeemed_at, c.validation_status,
+        ])
+
+    return StreamingResponse(
+        io.StringIO(output.getvalue()),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=steam_codes.csv"},
+    )
+
+# ─── Validate ───────────────────────────────────────────────
+
+@app.post("/api/validate/{code_id}")
+def validate_code(code_id: int, db: Session = Depends(get_db)):
+    code_entry = db.query(FoundCode).filter(FoundCode.id == code_id).first()
+    if not code_entry:
+        raise HTTPException(404, "Code not found")
+
+    from .validator import validate_key_format, validate_gift_link
+    if code_entry.code_type == "key":
+        result = validate_key_format(code_entry.code)
+    elif code_entry.code_type == "gift_link":
+        result = validate_gift_link(code_entry.code)
+    else:
+        result = {"valid": True, "reason": "Giveaway link (no automated validation)"}
+
+    code_entry.validation_status = "valid" if result["valid"] else "invalid"
+    code_entry.validation_reason = result["reason"][:500]
+    db.commit()
+    return result
+
+# ─── Auto-enter ────────────────────────────────────────────
+
+class AutoEnterRequest(BaseModel):
+    url: str
+    title: str = ""
+
+@app.post("/api/auto-enter")
+def auto_enter_giveaway(req: AutoEnterRequest):
+    from .auto_enter import auto_enter_giveaway as do_enter
+    return do_enter(req.url, req.title)
+
+# ─── Config ─────────────────────────────────────────────────
+
 @app.post("/api/config/reddit")
 def configure_reddit(config: ConfigReddit, db: Session = Depends(get_db)):
     source = db.query(SearchSource).filter(SearchSource.name == "reddit").first()
     if source:
         source.config = config.model_dump()
     else:
-        source = SearchSource(
-            name="reddit",
-            source_type="reddit",
-            config=config.model_dump(),
-        )
+        source = SearchSource(name="reddit", source_type="reddit", config=config.model_dump())
         db.add(source)
     db.commit()
 
     from .scrapers.reddit import RedditScraper
     scraper = RedditScraper(config.client_id, config.client_secret, config.user_agent)
     posts = scraper.search_recent(limit=5)
-
     return {"message": "Reddit configured", "test_results": len(posts)}
 
 @app.post("/api/config/steam-session")
 def configure_steam(config: ConfigSteamSession, db: Session = Depends(get_db)):
-    account = db.query(SteamAccount).filter(
-        SteamAccount.name == config.account_name
-    ).first()
-
+    account = db.query(SteamAccount).filter(SteamAccount.name == config.account_name).first()
     if account:
         account.session_cookies = config.cookies
     else:
-        account = SteamAccount(
-            name=config.account_name,
-            session_cookies=config.cookies,
-        )
+        account = SteamAccount(name=config.account_name, session_cookies=config.cookies)
         db.add(account)
-
     db.commit()
     return {"message": f"Steam account '{config.account_name}' configured"}
+
+@app.get("/api/config/notifications")
+def get_notification_config(db: Session = Depends(get_db)):
+    config = db.query(NotificationConfig).first()
+    if not config:
+        config = NotificationConfig()
+        db.add(config)
+        db.commit()
+    return {
+        "discord_webhook_url": config.discord_webhook_url,
+        "telegram_bot_token": config.telegram_bot_token,
+        "telegram_chat_id": config.telegram_chat_id,
+        "notify_on_new": config.notify_on_new,
+        "notify_on_redeem": config.notify_on_redeem,
+        "notify_on_fail": config.notify_on_fail,
+    }
+
+@app.post("/api/config/notifications")
+def update_notification_config(config: NotifConfigUpdate, db: Session = Depends(get_db)):
+    notif = db.query(NotificationConfig).first()
+    if not notif:
+        notif = NotificationConfig()
+        db.add(notif)
+    notif.discord_webhook_url = config.discord_webhook_url
+    notif.telegram_bot_token = config.telegram_bot_token
+    notif.telegram_chat_id = config.telegram_chat_id
+    notif.notify_on_new = config.notify_on_new
+    notif.notify_on_redeem = config.notify_on_redeem
+    notif.notify_on_fail = config.notify_on_fail
+    db.commit()
+    return {"message": "Notification config updated"}
+
+# ─── Sources ────────────────────────────────────────────────
 
 @app.get("/api/sources")
 def list_sources(db: Session = Depends(get_db)):
@@ -183,6 +348,17 @@ def list_sources(db: Session = Depends(get_db)):
         for s in sources
     ]
 
+@app.post("/api/sources/{source_id}/toggle")
+def toggle_source(source_id: int, db: Session = Depends(get_db)):
+    source = db.query(SearchSource).filter(SearchSource.id == source_id).first()
+    if not source:
+        raise HTTPException(404, "Source not found")
+    source.enabled = not source.enabled
+    db.commit()
+    return {"enabled": source.enabled}
+
+# ─── Accounts ───────────────────────────────────────────────
+
 @app.get("/api/accounts")
 def list_accounts(db: Session = Depends(get_db)):
     accounts = db.query(SteamAccount).all()
@@ -197,11 +373,27 @@ def list_accounts(db: Session = Depends(get_db)):
         for a in accounts
     ]
 
-@app.post("/api/codes/{code_id}/skip")
-def skip_code(code_id: int, db: Session = Depends(get_db)):
-    code = db.query(FoundCode).filter(FoundCode.id == code_id).first()
-    if not code:
-        raise HTTPException(404, "Code not found")
-    code.status = "expired"
+@app.post("/api/accounts")
+def create_account(acct: AccountCreate, db: Session = Depends(get_db)):
+    account = SteamAccount(name=acct.name, session_cookies=acct.cookies)
+    db.add(account)
     db.commit()
-    return {"message": "Code skipped"}
+    return {"message": f"Account '{acct.name}' created", "id": account.id}
+
+@app.post("/api/accounts/{account_id}/toggle")
+def toggle_account(account_id: int, db: Session = Depends(get_db)):
+    account = db.query(SteamAccount).filter(SteamAccount.id == account_id).first()
+    if not account:
+        raise HTTPException(404, "Account not found")
+    account.is_active = not account.is_active
+    db.commit()
+    return {"is_active": account.is_active}
+
+@app.delete("/api/accounts/{account_id}")
+def delete_account(account_id: int, db: Session = Depends(get_db)):
+    account = db.query(SteamAccount).filter(SteamAccount.id == account_id).first()
+    if not account:
+        raise HTTPException(404, "Account not found")
+    db.delete(account)
+    db.commit()
+    return {"message": "Account deleted"}

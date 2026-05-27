@@ -100,6 +100,10 @@ header h1 {
   font-size: 14px;
 }
 
+.table-wrapper {
+  overflow-x: auto;
+}
+
 .code-table {
   width: 100%;
   border-collapse: collapse;
@@ -114,6 +118,7 @@ header h1 {
   border-bottom: 1px solid var(--border);
   font-size: 11px;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .code-table td {
@@ -149,6 +154,12 @@ header h1 {
   text-decoration: underline;
 }
 
+.source-cell {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .title-cell a {
   color: var(--text);
   text-decoration: none;
@@ -164,6 +175,7 @@ header h1 {
   border-radius: 12px;
   font-size: 11px;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .badge.type-key { background: #1f6feb33; color: var(--primary); }
@@ -175,6 +187,24 @@ header h1 {
 .badge.status-failed { background: #f8514933; color: var(--red); }
 .badge.status-expired { background: #30363d; color: var(--text-secondary); }
 
+.badge.val-valid { background: #3fb95033; color: var(--green); }
+.badge.val-invalid { background: #f8514933; color: var(--red); }
+.badge.val-pending { background: #30363d; color: var(--text-secondary); }
+
+.val-reason {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.validation-cell {
+  max-width: 160px;
+}
+
 .date-cell {
   color: var(--text-secondary);
   font-size: 12px;
@@ -183,7 +213,16 @@ header h1 {
 
 .actions-cell {
   display: flex;
-  gap: 6px;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.acct-badge {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .btn {
@@ -201,19 +240,25 @@ header h1 {
   filter: brightness(1.2);
 }
 
-.btn-sm {
-  padding: 4px 10px;
-  font-size: 12px;
+.btn-xs {
+  padding: 3px 8px;
+  font-size: 11px;
 }
 
 .btn-primary {
   background: var(--accent);
 }
 
-.btn-secondary {
+.btn-outline {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text);
+}
+
+.btn-danger {
+  background: transparent;
+  border: 1px solid var(--red);
+  color: var(--red);
 }
 
 .btn-close {
@@ -300,6 +345,12 @@ header h1 {
   color: #fff;
 }
 
+form h3 {
+  font-size: 14px;
+  margin: 16px 0 8px;
+  color: var(--text);
+}
+
 form label {
   display: block;
   font-size: 13px;
@@ -327,6 +378,18 @@ form textarea {
 
 form .btn {
   margin-top: 8px;
+}
+
+.checkbox-label {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+  margin-top: 0;
 }
 
 .hint {
@@ -357,6 +420,12 @@ form .btn {
   cursor: pointer;
 }
 
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 20px 0;
+}
+
 .account-list {
   margin-top: 20px;
   border-top: 1px solid var(--border);
@@ -371,14 +440,55 @@ form .btn {
 .account-item {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   padding: 8px 0;
   font-size: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.acct-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .text-green { color: var(--green); }
 .text-red { color: var(--red); }
+.text-muted { color: var(--text-secondary); font-size: 12px; }
 
 .header-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-width: 140px;
+  z-index: 10;
+}
+
+.dropdown-content a {
+  display: block;
+  padding: 8px 12px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.dropdown-content a:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dropdown:hover .dropdown-content {
+  display: block;
 }

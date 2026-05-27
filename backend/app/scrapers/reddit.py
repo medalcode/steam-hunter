@@ -6,10 +6,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SUBREDDITS = [
     "FreeGameFindings",
+    "FreeGamesOnSteam",
     "GameDeals",
     "steam_giveaway",
     "steamdeals",
     "freebies",
+    "RandomActsOfGaming",
+    "GiftofGames",
 ]
 
 class RedditScraper:

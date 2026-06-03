@@ -164,3 +164,10 @@ Cada scraper corre cada 15 minutos vía APScheduler:
 - **twitter**: Nitter instances, cuentas de giveaways
 - **telegram**: Canales públicos de keys
 - **reddit**: Reddit API con OAuth
+
+---
+
+## Deploy
+
+This repo auto-deploys to GCP (`136.109.212.18`) via GitHub Actions on push to `main`.
+

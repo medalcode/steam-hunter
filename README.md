@@ -106,6 +106,52 @@ Steam Hunter se conecta al IPC de ArchiSteamFarm para canjear keys automáticame
 | `GET/POST /api/config/notifications` | Configurar notificaciones |
 | `WS /ws` | WebSocket para tiempo real |
 
+## MCP Server (Model Context Protocol)
+
+Steam Hunter incluye un servidor MCP que expone su funcionalidad como herramientas para asistentes de IA (compatible con opencode, Claude, etc.).
+
+### Herramientas MCP
+
+| Tool | Descripción |
+|------|-------------|
+| `search_free_games` | Ejecuta todos los scrapers y guarda resultados |
+| `list_found_codes` | Lista códigos encontrados con filtros |
+| `redeem_with_asf` | Envía una key al IPC de ASF para canjear |
+| `get_asf_status` | Estado de bots de ArchiSteamFarm |
+| `get_stats` | Estadísticas del sistema |
+| `validate_key` | Valida formato de key Steam |
+| `configure_asf` | Configura conexión con ASF |
+
+### Usar con opencode
+
+Agrega a tu `opencode.json`:
+
+```json
+{
+  "mcpServers": {
+    "steam-hunter": {
+      "command": "python",
+      "args": ["-m", "app.mcp_server"],
+      "cwd": "/ruta/a/steam-hunter/backend"
+    }
+  }
+}
+```
+
+Ejemplo de uso:
+
+```
+opencode> busca juegos gratis en steam y canjea las keys con ASF
+```
+
+### Ejecutar standalone
+
+```bash
+cd backend
+source venv/bin/activate
+python -m app.mcp_server
+```
+
 ## Scrapers
 
 Cada scraper corre cada 15 minutos vía APScheduler:

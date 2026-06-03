@@ -1,4 +1,17 @@
 services:
+  asf:
+    image: justarchi/archisteamfarm:latest
+    container_name: asf
+    ports:
+      - "127.0.0.1:1242:1242"
+    volumes:
+      - ./asf-config:/app/config
+    environment:
+      - ASF_USER=medalcode
+      - ASF_HEADLESS=true
+    restart: unless-stopped
+    network_mode: host
+
   backend:
     build: ./backend
     ports:
@@ -7,11 +20,12 @@ services:
       - steam_hunter_data:/app
     environment:
       - LOG_LEVEL=INFO
-      - ASF_IPC_URL=${ASF_IPC_URL:-http://host.docker.internal:1243}
+      - ASF_IPC_URL=http://127.0.0.1:1242
       - ASF_IPC_PASSWORD=${ASF_IPC_PASSWORD:-}
       - ASF_DEFAULT_BOT=${ASF_DEFAULT_BOT:-principal}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - ASF_AUTO_REDEEM=${ASF_AUTO_REDEEM:-true}
+    depends_on:
+      - asf
     restart: unless-stopped
 
   frontend:

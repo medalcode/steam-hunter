@@ -183,6 +183,66 @@ def redeem_code(req: RedeemRequest, db: Session = Depends(get_db)):
     db.commit()
     return result
 
+@app.post("/api/scrape")
+def trigger_scrape():
+    from .scheduler import run_scrapers_once
+    from .database import SessionLocal as DbSession, SearchSource
+
+    db_cfg = DbSession()
+    try:
+        source = db_cfg.query(SearchSource).filter(SearchSource.name == "reddit").first()
+        reddit_scraper = None
+        if source and source.config:
+            from .scrapers.reddit import RedditScraper
+            cfg = source.config
+            reddit_scraper = RedditScraper(
+                cfg.get("client_id", ""),
+                cfg.get("client_secret", ""),
+                cfg.get("user_agent", "steam-hunter/1.0"),
+            )
+    finally:
+        db_cfg.close()
+
+    import time
+    start = time.time()
+    entries = run_scrapers_once(reddit_scraper=reddit_scraper)
+    elapsed = time.time() - start
+
+    return {"status": "ok", "new_entries": len(entries), "elapsed_seconds": round(elapsed, 1)}
+
+@app.post("/api/asf/retry-failed")
+def retry_failed_redeems(bot: str | None = None, db: Session = Depends(get_db)):
+    client, config = get_asf_client(db)
+    bot_name = bot or config.default_bot
+
+    pending = db.query(FoundCode).filter(
+        FoundCode.code_type == "key",
+        FoundCode.status.in_(["failed", "retry"]),
+    ).limit(20).all()
+
+    results = []
+    for code_entry in pending:
+        codes = [c.strip() for c in code_entry.code.replace(",", " ").split()]
+        for key in codes:
+            result = client.redeem_key(bot_name, key)
+            results.append({"code_id": code_entry.id, "key": key, **result})
+            if result.get("success"):
+                code_entry.status = "redeemed"
+                code_entry.redeemed_at = datetime.now(timezone.utc)
+                code_entry.error_message = None
+            elif result.get("status") in ("duplicate", "invalid"):
+                code_entry.status = "failed"
+                code_entry.error_message = result.get("message", "")
+            elif result.get("status") == "retry":
+                code_entry.status = "retry"
+                code_entry.error_message = result.get("message", "Transient error")
+            else:
+                code_entry.status = "failed"
+                code_entry.error_message = result.get("message", "Retry failed")
+        db.commit()
+
+    return {"total": len(pending), "results": results}
+
 @app.post("/api/codes/{code_id}/skip")
 def skip_code(code_id: int, db: Session = Depends(get_db)):
     code = db.query(FoundCode).filter(FoundCode.id == code_id).first()
@@ -319,8 +379,10 @@ def asf_redeem(req: ASFRedeemRequest, db: Session = Depends(get_db)):
     if any_success:
         code_entry.status = "redeemed"
         code_entry.redeemed_at = datetime.now(timezone.utc)
+        code_entry.error_message = None
     else:
-        code_entry.status = "failed"
+        all_retry = all(r.get("status") == "retry" for r in results)
+        code_entry.status = "retry" if all_retry else "failed"
         code_entry.error_message = results[0].get("message", "ASF redeem failed") if results else "No keys"
 
     db.commit()
@@ -336,7 +398,7 @@ def asf_redeem_all(bot: str | None = None, db: Session = Depends(get_db)):
 
     pending = db.query(FoundCode).filter(
         FoundCode.code_type == "key",
-        FoundCode.status == "new",
+        FoundCode.status.in_(["new", "retry"]),
     ).limit(20).all()
 
     results = []
@@ -348,9 +410,13 @@ def asf_redeem_all(bot: str | None = None, db: Session = Depends(get_db)):
             if result.get("success"):
                 code_entry.status = "redeemed"
                 code_entry.redeemed_at = datetime.now(timezone.utc)
-            elif result.get("status") == "duplicate":
+                code_entry.error_message = None
+            elif result.get("status") in ("duplicate", "invalid"):
                 code_entry.status = "failed"
                 code_entry.error_message = result["message"]
+            elif result.get("status") == "retry":
+                code_entry.status = "retry"
+                code_entry.error_message = result.get("message", "Transient error")
             else:
                 code_entry.status = "failed"
                 code_entry.error_message = result.get("message", "Unknown error")

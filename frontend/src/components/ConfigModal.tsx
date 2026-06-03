@@ -11,6 +11,9 @@ import {
   fetchASFConfig,
   updateASFConfig,
   fetchASFBots,
+  asfRedeemAll,
+  asfRetryFailed,
+  triggerScrape,
 } from "../api/client"
 import type { SteamAccount, ASFBot } from "../types"
 
@@ -51,6 +54,9 @@ export function ConfigModal({ onClose }: Props) {
   })
   const [asfBots, setAsfBots] = useState<ASFBot[]>([])
   const [testResult, setTestResult] = useState<string | null>(null)
+  const [redeemAllStatus, setRedeemAllStatus] = useState<string | null>(null)
+  const [retryStatus, setRetryStatus] = useState<string | null>(null)
+  const [scrapeStatus, setScrapeStatus] = useState<string | null>(null)
 
   const loadAccounts = async () => {
     const data = await fetchAccounts()
@@ -70,7 +76,7 @@ export function ConfigModal({ onClose }: Props) {
     try {
       const data = await fetchASFConfig()
       setAsfForm({ ...data, ipc_password: "" })
-      const bots = await fetchASFBots()
+      const bots: ASFBot[] = await fetchASFBots()
       setAsfBots(bots)
     } catch {
       /* ignore */
@@ -166,11 +172,48 @@ export function ConfigModal({ onClose }: Props) {
 
   const testASFConnection = async () => {
     try {
-      const bots = await fetchASFBots()
+      const bots: ASFBot[] = await fetchASFBots()
       setAsfBots(bots)
-      setTestResult(`Connected! ${bots.length} bot(s): ${bots.map(b => b.name).join(", ")}`)
+      const status = bots.map((b: ASFBot) => `${b.name} (${b.online ? "online" : "offline"})`).join(", ")
+      setTestResult(`Connected! ${bots.length} bot(s): ${status}`)
     } catch {
       setTestResult("Connection failed")
+    }
+  }
+
+  const handleRedeemAll = async () => {
+    setRedeemAllStatus("Processing...")
+    try {
+      const result = await asfRedeemAll(asfForm.default_bot)
+      const success = result.results.filter((r: any) => r.success).length
+      const failed = result.results.filter((r: any) => !r.success).length
+      setRedeemAllStatus(`Done: ${success} redeemed, ${failed} failed (${result.total} attempted)`)
+      const bots = await fetchASFBots()
+      setAsfBots(bots)
+    } catch {
+      setRedeemAllStatus("Error processing redeem-all")
+    }
+  }
+
+  const handleRetryFailed = async () => {
+    setRetryStatus("Processing...")
+    try {
+      const result = await asfRetryFailed(asfForm.default_bot)
+      const success = result.results.filter((r: any) => r.success).length
+      const failed = result.results.filter((r: any) => !r.success).length
+      setRetryStatus(`Done: ${success} recovered, ${failed} still failing (${result.total} attempted)`)
+    } catch {
+      setRetryStatus("Error retrying")
+    }
+  }
+
+  const handleScrape = async () => {
+    setScrapeStatus("Scraping...")
+    try {
+      const result = await triggerScrape()
+      setScrapeStatus(`Scrape done: ${result.new_entries} new codes in ${result.elapsed_seconds}s`)
+    } catch {
+      setScrapeStatus("Scrape failed")
     }
   }
 
@@ -389,58 +432,117 @@ export function ConfigModal({ onClose }: Props) {
         )}
 
         {tab === "asf" && (
-          <form onSubmit={handleASFSubmit}>
-            <p className="hint">
-              Connect to ArchiSteamFarm IPC to auto-redeem keys.
-            </p>
-            <label>
-              IPC URL:
-              <input
-                value={asfForm.ipc_url}
-                onChange={(e) => setAsfForm((f) => ({ ...f, ipc_url: e.target.value }))}
-                placeholder="http://localhost:1243"
-              />
-            </label>
-            <label>
-              IPC Password (optional):
-              <input
-                type="password"
-                value={asfForm.ipc_password}
-                onChange={(e) => setAsfForm((f) => ({ ...f, ipc_password: e.target.value }))}
-                placeholder="..."
-              />
-            </label>
-            <label>
-              Default Bot:
-              <input
-                value={asfForm.default_bot}
-                onChange={(e) => setAsfForm((f) => ({ ...f, default_bot: e.target.value }))}
-                placeholder="principal"
-              />
-            </label>
-            {asfBots.length > 0 && (
-              <p className="hint">Available bots: {asfBots.map(b => b.name).join(", ")}</p>
-            )}
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={asfForm.auto_redeem}
-                onChange={(e) => setAsfForm((f) => ({ ...f, auto_redeem: e.target.checked }))}
-              />
-              Auto-redeem keys via ASF
-            </label>
-
-            <div className="form-buttons">
-              <button type="submit" className="btn">Save ASF</button>
-              <button type="button" className="btn btn-outline" onClick={testASFConnection}>Test Connection</button>
-            </div>
-
-            {testResult && (
-              <div className={`hint ${testResult.includes("failed") ? "text-red" : "text-green"}`}>
-                {testResult}
+          <div>
+            <form onSubmit={handleASFSubmit}>
+              <p className="hint">
+                Connect to ArchiSteamFarm IPC to auto-redeem keys.
+              </p>
+              <label>
+                IPC URL:
+                <input
+                  value={asfForm.ipc_url}
+                  onChange={(e) => setAsfForm((f) => ({ ...f, ipc_url: e.target.value }))}
+                  placeholder="http://localhost:1243"
+                />
+              </label>
+              <label>
+                IPC Password (optional):
+                <input
+                  type="password"
+                  value={asfForm.ipc_password}
+                  onChange={(e) => setAsfForm((f) => ({ ...f, ipc_password: e.target.value }))}
+                  placeholder="..."
+                />
+              </label>
+              <label>
+                Default Bot:
+                <input
+                  value={asfForm.default_bot}
+                  onChange={(e) => setAsfForm((f) => ({ ...f, default_bot: e.target.value }))}
+                  placeholder="principal"
+                />
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={asfForm.auto_redeem}
+                  onChange={(e) => setAsfForm((f) => ({ ...f, auto_redeem: e.target.checked }))}
+                />
+                Auto-redeem keys via ASF
+              </label>
+              <div className="form-buttons">
+                <button type="submit" className="btn">Save ASF</button>
+                <button type="button" className="btn btn-outline" onClick={testASFConnection}>Test Connection</button>
               </div>
+              {testResult && (
+                <div className={`hint ${testResult.includes("failed") ? "text-red" : "text-green"}`}>
+                  {testResult}
+                </div>
+              )}
+            </form>
+
+            <hr className="divider" />
+
+            {/* Bot status table */}
+            <h3>Bot Status</h3>
+            {asfBots.length > 0 ? (
+              <table className="bot-table">
+                <thead>
+                  <tr>
+                    <th>Bot</th>
+                    <th>Status</th>
+                    <th>Online</th>
+                    <th>Farming</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {asfBots.map((bot) => (
+                    <tr key={bot.name}>
+                      <td><strong>{bot.name}</strong></td>
+                      <td>{bot.status}</td>
+                      <td className={bot.online ? "text-green" : "text-red"}>
+                        {bot.online ? "Online" : "Offline"}
+                      </td>
+                      <td>{bot.games > 0 ? `${bot.games} games` : "Idle"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="hint text-muted">No bots connected. Use "Test Connection" above.</p>
             )}
-          </form>
+
+            <hr className="divider" />
+
+            {/* Actions */}
+            <h3>Actions</h3>
+            <div className="action-buttons">
+              <button type="button" className="btn btn-outline" onClick={handleRedeemAll}>
+                Redeem All Pending
+              </button>
+              <button type="button" className="btn btn-outline" onClick={handleRetryFailed}>
+                Retry Failed
+              </button>
+              <button type="button" className="btn btn-outline" onClick={handleScrape}>
+                Trigger Scrape Now
+              </button>
+            </div>
+            {redeemAllStatus && (
+              <p className={`hint ${redeemAllStatus.includes("Error") ? "text-red" : "text-green"}`}>
+                {redeemAllStatus}
+              </p>
+            )}
+            {retryStatus && (
+              <p className={`hint ${retryStatus.includes("Error") ? "text-red" : "text-green"}`}>
+                {retryStatus}
+              </p>
+            )}
+            {scrapeStatus && (
+              <p className={`hint ${scrapeStatus.includes("failed") ? "text-red" : "text-green"}`}>
+                {scrapeStatus}
+              </p>
+            )}
+          </div>
         )}
       </div>
     </div>

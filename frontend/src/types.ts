@@ -5,10 +5,13 @@ export interface FoundCode {
   source: string
   source_url: string | null
   title: string | null
-  status: "new" | "redeemed" | "failed" | "expired"
+  status: "new" | "redeemed" | "failed" | "expired" | "retry"
   found_at: string | null
   redeemed_at: string | null
   error_message: string | null
+  validation_status?: string | null
+  validation_reason?: string | null
+  steam_account_id?: number | null
 }
 
 export interface Stats {
@@ -48,6 +51,7 @@ export interface ASFBot {
   name: string
   status: string
   games: number
+  online: boolean
 }
 
 export interface ASFRedeemResult {

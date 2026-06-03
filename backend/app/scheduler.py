@@ -185,7 +185,16 @@ def run_scrapers_once(reddit_scraper=None):
                                     if result.get("success"):
                                         entry.status = "redeemed"
                                         entry.redeemed_at = datetime.now(timezone.utc)
+                                        entry.error_message = None
                                         logger.info(f"ASF redeemed: {key} on {asf_cfg.default_bot}")
+                                    elif result.get("status") == "retry":
+                                        entry.status = "retry"
+                                        entry.error_message = result.get("message", "Transient error")
+                                        logger.warning(f"ASF transient: {key} -> {result.get('message')}")
+                                    elif result.get("status") in ("duplicate", "invalid"):
+                                        entry.status = "failed"
+                                        entry.error_message = result.get("message", "")
+                                        logger.info(f"ASF permanent: {key} -> {result.get('status')}")
                                     else:
                                         entry.status = "failed"
                                         entry.error_message = result.get("message", "ASF failed")
@@ -195,6 +204,40 @@ def run_scrapers_once(reddit_scraper=None):
                                 logger.error(f"ASF redeem error for {entry.code}: {e}")
                 except Exception as e:
                     logger.error(f"ASF auto-redeem setup error: {e}")
+
+        # Retry previous transient failures on each cycle
+        try:
+            asf_cfg = db.query(ASFConfig).first()
+            if asf_cfg and asf_cfg.auto_redeem and asf_cfg.ipc_url:
+                retries = db.query(FoundCode).filter(
+                    FoundCode.code_type == "key",
+                    FoundCode.status == "retry",
+                ).limit(10).all()
+                if retries:
+                    from .asf_client import ASFClient
+                    asf = ASFClient(asf_cfg.ipc_url, asf_cfg.ipc_password)
+                    logger.info(f"Retrying {len(retries)} previously failed codes")
+                    for entry in retries:
+                        try:
+                            codes = [c.strip() for c in entry.code.replace(",", " ").split()]
+                            for key in codes:
+                                result = asf.redeem_key(asf_cfg.default_bot, key)
+                                if result.get("success"):
+                                    entry.status = "redeemed"
+                                    entry.redeemed_at = datetime.now(timezone.utc)
+                                    entry.error_message = None
+                                    logger.info(f"Retry SUCCESS: {key}")
+                                elif result.get("status") == "retry":
+                                    logger.debug(f"Retry still transient: {key}")
+                                else:
+                                    entry.status = "failed"
+                                    entry.error_message = result.get("message", "")
+                                    logger.info(f"Retry permanent fail: {key} -> {result.get('status')}")
+                                db.commit()
+                        except Exception as e:
+                            logger.error(f"Retry error for {entry.code}: {e}")
+        except Exception as e:
+            logger.error(f"ASF retry setup error: {e}")
 
         return new_entries
 

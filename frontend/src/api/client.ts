@@ -170,3 +170,15 @@ export async function asfRedeemAll(bot?: string) {
   })
   return res.json()
 }
+
+export async function asfRetryFailed(bot?: string) {
+  const res = await fetch(`${API_BASE}/api/asf/retry-failed?${bot ? `bot=${bot}` : ""}`, {
+    method: "POST",
+  })
+  return res.json()
+}
+
+export async function triggerScrape() {
+  const res = await fetch(`${API_BASE}/api/scrape`, { method: "POST" })
+  return res.json()
+}

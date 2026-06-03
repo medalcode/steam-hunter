@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, JSON
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -61,13 +62,36 @@ class ASFConfig(Base):
     __tablename__ = "asf_config"
 
     id = Column(Integer, primary_key=True)
-    ipc_url = Column(String(256), default="http://localhost:1243")
-    ipc_password = Column(String(256), default="")
-    default_bot = Column(String(100), default="principal")
+    ipc_url = Column(String(256), default=os.environ.get("ASF_IPC_URL", "http://localhost:1243"))
+    ipc_password = Column(String(256), default=os.environ.get("ASF_IPC_PASSWORD", ""))
+    default_bot = Column(String(100), default=os.environ.get("ASF_DEFAULT_BOT", "principal"))
     auto_redeem = Column(Boolean, default=False)
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+
+    # Seed ASF config from environment variables if set
+    ipc_url = os.environ.get("ASF_IPC_URL", "")
+    ipc_password = os.environ.get("ASF_IPC_PASSWORD", "")
+    default_bot = os.environ.get("ASF_DEFAULT_BOT", "")
+    if ipc_url or ipc_password or default_bot:
+        db = SessionLocal()
+        try:
+            cfg = db.query(ASFConfig).first()
+            if not cfg:
+                cfg = ASFConfig()
+                db.add(cfg)
+            if ipc_url:
+                cfg.ipc_url = ipc_url
+            if ipc_password:
+                cfg.ipc_password = ipc_password
+            if default_bot:
+                cfg.default_bot = default_bot
+            if os.environ.get("ASF_AUTO_REDEEM", "").lower() in ("1", "true", "yes"):
+                cfg.auto_redeem = True
+            db.commit()
+        finally:
+            db.close()
 
 def get_db():
     db = SessionLocal()

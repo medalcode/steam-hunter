@@ -171,3 +171,35 @@ Cada scraper corre cada 15 minutos vía APScheduler:
 
 This repo auto-deploys to GCP (`136.109.212.18`) via GitHub Actions on push to `main`.
 
+
+## Auto-redeem y Free Games
+
+El sistema detecta automáticamente dos tipos de contenido:
+
+### Keys de Steam
+Cuando se encuentra una key (formato `XXXXX-XXXXX-XXXXX`), se intenta canjear en **los 3 bots**:
+`principal` → `secundaria1` → `tryh4rd`. Si un bot ya posee el juego, se saltea y se prueba el siguiente.
+
+### Juegos Free-to-Keep de Steam
+Cuando se detecta un enlace a `store.steampowered.com/app/<ID>` marcado como `giveaway`, el sistema:
+
+1. Consulta la API de Steam para obtener el **sub ID promocional gratuito** (paquete con precio $0)
+2. Ejecuta `addlicense sub/<ID>` en **los 3 bots**
+3. Si no encuentra un sub gratuito, intenta `addlicense app/<ID>` como fallback
+
+Esto permite agregar juegos como Tell Me Why, Winexy, Gravity Circuit automáticamente.
+
+### Bots disponibles
+
+| Bot | Steam Account | Steam ID | Estado |
+|---|---|---|---|
+| `principal` | forgerb | 76561198051997214 | ✅ Farming |
+| `secundaria1` | forgerb2 | 76561199125215505 | ✅ Limitada |
+| `tryh4rd` | tryh4rdgame | 76561198691635889 | ✅ Limitada |
+
+## Historial de cambios recientes
+
+- **ASF Client fix**: `get_bots()` ahora parsea correctamente la respuesta de ASF IPC (formato dict-keyed, no lista)
+- **Multi-bot redeem**: Auto-redeem prueba los 3 bots en secuencia, no solo el default
+- **Free game detection**: Nuevo helper `_get_free_sub()` que obtiene el sub ID promocional desde la API de Steam
+- **Free-to-Keep auto-add**: Juegos gratis temporales se agregan vía `addlicense` en vez de `redeem_key`

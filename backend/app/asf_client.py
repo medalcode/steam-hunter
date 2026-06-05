@@ -1,19 +1,10 @@
 import logging
 import requests
 import json
-import re
 
 logger = logging.getLogger(__name__)
 
 ASF_IPC_DEFAULT = "http://localhost:1243"
-
-TRANSIENT_ERRORS = [
-    "rate limit", "RateLimit", "429", "too many requests",
-    "Timeout", "timed out", "timeout",
-    "not connect", "Connection refused", "refused",
-    "throttle", "Throttle",
-    "Offline", "not logged", "NotLoggedOn",
-]
 
 class ASFClient:
     def __init__(self, ipc_url: str = ASF_IPC_DEFAULT, password: str = ""):
@@ -46,54 +37,41 @@ class ASFClient:
         except Exception as e:
             return {"success": False, "error": f"ASF error: {e}"}
 
-    @staticmethod
-    def _is_transient(error_message: str) -> bool:
-        if not error_message:
-            return False
-        return any(t in error_message for t in TRANSIENT_ERRORS)
+    def _extract_bot_data(self, result: dict | None, bot_name: str) -> dict | None:
+        if not isinstance(result, dict) or "Result" not in result:
+            return None
+        inner = result["Result"]
+        if isinstance(inner, dict) and bot_name in inner:
+            return inner[bot_name]
+        if isinstance(inner, dict) and "BotName" in inner:
+            return inner
+        return None
 
-    def get_bots(self) -> list[dict]:
-        result = self._do_request("GET", "/api/bot")
-        if isinstance(result, dict) and "Result" in result:
-            bots = result["Result"]
-            if isinstance(bots, list):
-                return [
-                    {
-                        "name": b.get("BotName", b.get("Name", "?")),
-                        "status": b.get("Status", "?"),
-                        "games": b.get("CardsFarmer", {}).get("CurrentGamesFarming", 0),
-                        "online": b.get("Status") == 1,
-                    }
-                    for b in bots
-                ]
-        if isinstance(result, list):
-            return [
-                {
-                    "name": b.get("BotName", b.get("Name", "?")),
+    def get_bots(self, known_bots: list[str] | None = None) -> list[dict]:
+        known_bots = known_bots or ["principal", "secundaria1"]
+        bots = []
+        for bot_name in known_bots:
+            result = self._do_request("GET", f"/api/bot/{bot_name}")
+            b = self._extract_bot_data(result, bot_name)
+            if b:
+                bots.append({
+                    "name": b.get("BotName", bot_name),
                     "status": b.get("Status", "?"),
-                    "games": b.get("CardsFarmer", {}).get("CurrentGamesFarming", 0),
-                    "online": b.get("Status") == 1,
-                }
-                for b in result
-            ]
-        return []
+                    "online": b.get("IsConnectedAndLoggedOn", False),
+                    "games": len(b.get("CardsFarmer", {}).get("CurrentGamesFarming", [])),
+                })
+        return bots
 
     def get_bot_status(self, bot: str) -> dict:
         result = self._do_request("GET", f"/api/bot/{bot}")
-        if isinstance(result, dict) and "Result" in result:
+        b = self._extract_bot_data(result, bot)
+        if b:
             return {
-                "name": result["Result"].get("BotName", bot),
-                "status": result["Result"].get("Status", "?"),
-                "online": result["Result"].get("Status") == 1,
+                "name": b.get("BotName", bot),
+                "status": b.get("Status", "?"),
+                "online": b.get("IsConnectedAndLoggedOn", False),
             }
         return {}
-
-    def send_command(self, bot: str, command: str) -> dict:
-        return self._do_request(
-            "POST",
-            "/api/command",
-            data={"command": f"{command} {bot}"},
-        )
 
     def redeem_key(self, bot: str, key: str) -> dict:
         result = self._do_request(
@@ -102,39 +80,32 @@ class ASFClient:
             data={"key": key},
         )
 
-        if result.get("error"):
-            err = result["error"]
-            if self._is_transient(err):
-                return {"success": False, "status": "retry", "message": err}
-            return {"success": False, "status": "error", "message": err}
-
         status = result.get("Result") if isinstance(result, dict) else result
 
         if isinstance(status, str):
             if "Redeem" in status or "redeem" in status:
-                return {"success": True, "status": "redeemed", "message": status}
+                return {"success": True, "status": status, "message": status}
             if "Already" in status or "already" in status:
                 return {"success": False, "status": "duplicate", "message": status}
-            if "RateLimit" in status or "rate" in status.lower():
-                return {"success": False, "status": "retry", "message": status}
-            if "Timeout" in status or "throttle" in status.lower():
-                return {"success": False, "status": "retry", "message": status}
-            if "Invalid" in status:
-                return {"success": False, "status": "invalid", "message": status}
             return {"success": True, "status": "submitted", "message": status}
 
         if isinstance(status, dict):
-            result_str = status.get("result", "")
-            if result_str in ("Redeemed!", True):
-                return {"success": True, "status": "redeemed", "message": status.get("message", "")}
-            if "Already" in str(result_str):
-                return {"success": False, "status": "duplicate", "message": json.dumps(status)}
-            if "Invalid" in str(result_str):
-                return {"success": False, "status": "invalid", "message": json.dumps(status)}
             return {
-                "success": False,
-                "status": "retry" if self._is_transient(str(status)) else "error",
+                "success": status.get("result") in ("Redeemed!", True),
+                "status": status.get("result", "unknown"),
                 "message": status.get("message", json.dumps(status)),
             }
 
-        return {"success": False, "status": "error", "message": f"Unexpected response: {str(result)[:200]}"}
+        if isinstance(result, dict):
+            error = result.get("error") or result.get("Message", "")
+            if error:
+                return {"success": False, "status": "error", "message": error}
+
+        return {"success": True, "status": "submitted", "message": str(result)[:200]}
+
+    def send_command(self, bot: str, command: str) -> dict:
+        return self._do_request(
+            "POST",
+            "/api/command",
+            data={"command": f"{command} {bot}"},
+        )

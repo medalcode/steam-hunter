@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from .database import init_db, get_db, FoundCode, SteamAccount, SearchSource, NotificationConfig, ASFConfig
-from .scheduler import start_scheduler, set_websocket_manager
+from .scheduler import start_scheduler, set_websocket_manager, run_scrapers_once
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -185,13 +185,12 @@ def redeem_code(req: RedeemRequest, db: Session = Depends(get_db)):
 
 @app.post("/api/scrape")
 def trigger_scrape():
-    from .scheduler import run_scrapers_once
     from .database import SessionLocal as DbSession, SearchSource
 
+    reddit_scraper = None
     db_cfg = DbSession()
     try:
         source = db_cfg.query(SearchSource).filter(SearchSource.name == "reddit").first()
-        reddit_scraper = None
         if source and source.config:
             from .scrapers.reddit import RedditScraper
             cfg = source.config

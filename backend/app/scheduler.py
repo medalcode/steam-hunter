@@ -228,7 +228,7 @@ def run_scrapers_once(reddit_scraper=None):
                     if asf_cfg and asf_cfg.auto_redeem and asf_cfg.ipc_url:
                         from .asf_client import ASFClient
                         asf = ASFClient(asf_cfg.ipc_url, asf_cfg.ipc_password)
-                        bots_to_try = [asf_cfg.default_bot, "secundaria1", "tryh4rd"]
+                        bots_to_try = [asf_cfg.default_bot, "secundaria1"]
                         bots_to_try = list(dict.fromkeys(bots_to_try))
                         DEMO_KEYWORDS = ("demo", "trial", "sample", "free weekend", "free access")
                         for entry in keys_to_redeem:
@@ -280,7 +280,7 @@ def run_scrapers_once(reddit_scraper=None):
                     if asf_cfg and asf_cfg.auto_redeem and asf_cfg.ipc_url:
                         from .asf_client import ASFClient
                         asf = ASFClient(asf_cfg.ipc_url, asf_cfg.ipc_password)
-                        bots_to_try = [asf_cfg.default_bot, "secundaria1", "tryh4rd"]
+                        bots_to_try = [asf_cfg.default_bot, "secundaria1"]
                         bots_to_try = list(dict.fromkeys(bots_to_try))
                         DEMO_KEYWORDS = ("demo", "trial", "sample", "free weekend", "free access")
                         for entry in free_games:

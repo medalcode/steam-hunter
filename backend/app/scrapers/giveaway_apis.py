@@ -91,9 +91,9 @@ class GiveawayAPIScraper:
             now = datetime.now(timezone.utc).isoformat()
             results = []
 
-            for link_el in soup.select("a[href*='/event/']"):
-                href = link_el.get("href", "")
-                title_el = link_el.find("b")
+            for card in soup.select("a.event-card"):
+                href = card.get("href", "")
+                title_el = card.select_one("div.vertical-align-middle")
                 if not title_el:
                     continue
                 title = title_el.text.strip()
@@ -101,16 +101,18 @@ class GiveawayAPIScraper:
                     continue
 
                 platform = "Steam"
-                img = link_el.select_one("img[alt*='Steam'], img[src*='steam']")
-                if not img:
-                    img = link_el.select_one("img[alt='Epic Games']")
-                    if img:
-                        platform = "Epic"
+                platform_el = card.select_one("i[class*='event-platform']")
+                if platform_el:
+                    cls = " ".join(platform_el.get("class", []))
+                    if "epic" in cls.lower():
+                        platform = "Epic Games"
+                    elif "gog" in cls.lower():
+                        platform = "GOG"
 
-                event_url = href if href.startswith("http") else f"https://givee.club{href}"
+                event_url = f"https://givee.club{href}" if not href.startswith("http") else href
 
                 results.append({
-                    "source": "giveeclub/free" if "Steam" in platform else "giveeclub/other",
+                    "source": "giveeclub/free" if platform == "Steam" else "giveeclub/other",
                     "source_url": event_url,
                     "title": f"Givee: {title[:200]}",
                     "description": f"Platform: {platform} | {event_url}",

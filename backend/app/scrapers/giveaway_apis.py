@@ -23,6 +23,7 @@ class GiveawayAPIScraper:
         results = []
         results.extend(self._freesteamkeys_giveaways())
         results.extend(self._gamerpower_giveaways())
+        results.extend(self._givee_club())
         return results
 
     def _freesteamkeys_giveaways(self) -> list[dict]:
@@ -72,6 +73,60 @@ class GiveawayAPIScraper:
             return results
         except Exception as e:
             logger.error(f"FreeSteamKeys API error: {e}")
+            return []
+
+    def _givee_club(self) -> list[dict]:
+        try:
+            resp = self.session.get(
+                "https://givee.club/es",
+                timeout=15,
+                headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+            )
+            if resp.status_code != 200:
+                logger.warning(f"givee.club -> {resp.status_code}")
+                return []
+
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(resp.text, "lxml")
+            now = datetime.now(timezone.utc).isoformat()
+            results = []
+
+            for link_el in soup.select("a[href*='/event/']"):
+                href = link_el.get("href", "")
+                title_el = link_el.find("b")
+                if not title_el:
+                    continue
+                title = title_el.text.strip()
+                if not title or len(title) < 3:
+                    continue
+
+                platform = "Steam"
+                img = link_el.select_one("img[alt*='Steam'], img[src*='steam']")
+                if not img:
+                    img = link_el.select_one("img[alt='Epic Games']")
+                    if img:
+                        platform = "Epic"
+
+                event_url = href if href.startswith("http") else f"https://givee.club{href}"
+                steam_url = ""
+                import re
+                m = re.search(r"store\.steampowered\.com/app/(\d+)", resp.text)
+                if m:
+                    steam_url = f"https://store.steampowered.com/app/{m.group(1)}"
+
+                results.append({
+                    "source": "giveeclub/free" if "Steam" in platform else "giveeclub/other",
+                    "source_url": steam_url or event_url,
+                    "title": f"Givee: {title[:200]}",
+                    "description": f"Platform: {platform} | {event_url}",
+                    "found_at": now,
+                })
+
+            if results:
+                logger.info(f"Givee.Club: {len(results)} results")
+            return results
+        except Exception as e:
+            logger.error(f"Givee.Club error: {e}")
             return []
 
     def _gamerpower_giveaways(self) -> list[dict]:

@@ -109,7 +109,7 @@ def run_scrapers_once(reddit_scraper=None):
             "gamerpower", "giveaway.su", "steamgifts",
             "steamdb", "steam/specials", "epic/free",
             "cheapshark/free", "cheapshark/deals",
-            "fanatical/free", "freesteamkeys",
+            "fanatical/free", "freesteamkeys", "giveeclub",
         }
 
         new_entries = []

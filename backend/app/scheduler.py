@@ -61,6 +61,7 @@ def run_scrapers_once(reddit_scraper=None):
     from .scrapers.keysites import KeySitesScraper
     from .scrapers.moresources import MoreSourcesScraper
     from .scrapers.giveaway_apis import GiveawayAPIScraper
+    from .validator import validate_key_format, validate_gift_link
     from .notifications import Notifier, NotificationConfig as NotifCfg
 
     twitter_scraper = TwitterScraper()

@@ -203,9 +203,13 @@ def run_scrapers_once(reddit_scraper=None):
             except Exception as e:
                 logger.error(f"WebSocket broadcast failed: {e}")
 
-        if new_entries:
+        all_entries_for_redeem = new_entries or db.query(FoundCode).filter(
+            FoundCode.status == "new",
+        ).limit(1).all()
+
+        if all_entries_for_redeem:
             keys_to_redeem = [
-                e for e in new_entries
+                e for e in (new_entries or [])
                 if e.code_type == "key"
                 and e.validation_status == "valid"
                 and not e.source.startswith("xbox/")
@@ -241,9 +245,13 @@ def run_scrapers_once(reddit_scraper=None):
                                     continue
                                 codes = [c.strip() for c in entry.code.replace(",", " ").split()]
                                 for key in codes:
+                                    redeemed_on_any = False
+                                    already_on_any = False
+                                    last_error = ""
                                     for bot in bots_to_try:
                                         result = asf.redeem_key(bot, key)
                                         if result.get("success"):
+                                            redeemed_on_any = True
                                             if entry.status != "redeemed":
                                                 entry.status = "redeemed"
                                                 entry.redeemed_at = datetime.now(timezone.utc)
@@ -251,18 +259,28 @@ def run_scrapers_once(reddit_scraper=None):
                                         else:
                                             msg = result.get("message", "")
                                             if "already" in msg.lower() or "duplicate" in msg.lower():
+                                                already_on_any = True
                                                 logger.info(f"ASF {key} already on {bot}")
                                             else:
-                                                entry.status = "failed"
-                                                entry.error_message = msg
+                                                last_error = msg
                                                 logger.warning(f"ASF failed: {key} on {bot} -> {msg}")
+                                    if not redeemed_on_any and not already_on_any:
+                                        entry.status = "failed"
+                                        entry.error_message = last_error
+                                    elif not redeemed_on_any and already_on_any:
+                                        if entry.status != "redeemed":
+                                            entry.status = "redeemed"
+                                            entry.redeemed_at = datetime.now(timezone.utc)
                                     db.commit()
                             except Exception as e:
                                 logger.error(f"ASF redeem error for {entry.code}: {e}")
                 except Exception as e:
                     logger.error(f"ASF auto-redeem setup error: {e}")
 
-            free_games = [e for e in new_entries if e.code_type == "giveaway" and e.status == "new" and STEAM_APP_RE.search(e.code or e.source_url or "")]
+            free_games = [
+                e for e in (new_entries or [])
+                if e.code_type == "giveaway" and e.status == "new" and STEAM_APP_RE.search(e.code or e.source_url or "")
+            ]
             existing_free = db.query(FoundCode).filter(
                 FoundCode.status == "new",
                 FoundCode.code_type == "giveaway",
@@ -302,20 +320,32 @@ def run_scrapers_once(reddit_scraper=None):
                                     entry.error_message = "Not free-to-keep on Steam"
                                     continue
                                 sub_id = f"sub/{sub_id}"
+                                added_on_any = False
+                                already_on_any = False
                                 for bot in bots_to_try:
                                     result = asf._do_request("POST", "/api/command", data={"command": f"addlicense {bot} {sub_id}"})
                                     msg = (result or {}).get("Result", "")
                                     if "OK" in msg:
+                                        added_on_any = True
                                         if entry.status != "redeemed":
                                             entry.status = "redeemed"
                                             entry.redeemed_at = datetime.now(timezone.utc)
                                         logger.info(f"Free game added: app/{app_id} ({sub_id}) on {bot}")
                                     elif "Already" in msg:
+                                        already_on_any = True
                                         logger.info(f"Free game app/{app_id} already on {bot}")
                                     else:
-                                        entry.status = "failed"
-                                        entry.error_message = msg[:200]
                                         logger.warning(f"Free game failed app/{app_id} on {bot}: {msg}")
+                                if added_on_any:
+                                    if entry.status != "redeemed":
+                                        entry.status = "redeemed"
+                                        entry.redeemed_at = datetime.now(timezone.utc)
+                                elif already_on_any:
+                                    entry.status = "redeemed"
+                                    entry.redeemed_at = datetime.now(timezone.utc)
+                                else:
+                                    entry.status = "failed"
+                                    entry.error_message = msg[:200]
                                 db.commit()
                             except Exception as e:
                                 logger.error(f"Free game add error for {entry.code}: {e}")

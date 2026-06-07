@@ -234,7 +234,7 @@ def run_scrapers_once(reddit_scraper=None):
                 except Exception as e:
                     logger.error(f"ASF auto-redeem setup error: {e}")
 
-            free_games = [e for e in new_entries if e.code_type == "giveaway" and STEAM_APP_RE.search(e.code or e.source_url or "")]
+            free_games = [e for e in new_entries if e.code_type == "giveaway" and e.status == "new" and STEAM_APP_RE.search(e.code or e.source_url or "")]
             if free_games:
                 try:
                     asf_cfg = db.query(ASFConfig).first()
@@ -251,10 +251,11 @@ def run_scrapers_once(reddit_scraper=None):
                                 app_id = match.group(1)
                                 sub_id = _get_free_sub(app_id)
                                 if not sub_id:
-                                    logger.info(f"No free sub found for app {app_id}, trying app/{app_id}")
-                                    sub_id = f"app/{app_id}"
-                                else:
-                                    sub_id = f"sub/{sub_id}"
+                                    logger.info(f"App {app_id} not free-to-keep, skipping")
+                                    entry.status = "skipped"
+                                    entry.error_message = "Not free-to-keep on Steam"
+                                    continue
+                                sub_id = f"sub/{sub_id}"
                                 for bot in bots_to_try:
                                     result = asf._do_request("POST", "/api/command", data={"command": f"addlicense {bot} {sub_id}"})
                                     msg = (result or {}).get("Result", "")

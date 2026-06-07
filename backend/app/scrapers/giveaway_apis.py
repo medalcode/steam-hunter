@@ -1,4 +1,5 @@
 import logging
+import re
 import requests
 import random
 from datetime import datetime, timezone
@@ -11,6 +12,8 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
 ]
 
+STEAM_URL_RE = re.compile(r"store\.steampowered\.com/app/(\d+)")
+
 class GiveawayAPIScraper:
     def __init__(self):
         self.session = requests.Session()
@@ -18,6 +21,26 @@ class GiveawayAPIScraper:
             "User-Agent": random.choice(USER_AGENTS),
             "Accept": "application/json",
         })
+        self._steam_url_cache: dict[str, str] = {}
+
+    def _resolve_steam_url(self, page_url: str) -> str:
+        if page_url in self._steam_url_cache:
+            return self._steam_url_cache[page_url]
+        try:
+            resp = self.session.get(
+                page_url, timeout=10,
+                headers={"Accept": "text/html", "User-Agent": random.choice(USER_AGENTS)},
+            )
+            if resp.status_code == 200:
+                m = STEAM_URL_RE.search(resp.text)
+                if m:
+                    url = f"https://store.steampowered.com/app/{m.group(1)}"
+                    self._steam_url_cache[page_url] = url
+                    return url
+        except Exception:
+            pass
+        self._steam_url_cache[page_url] = ""
+        return ""
 
     def search_all(self) -> list[dict]:
         results = []
@@ -48,21 +71,21 @@ class GiveawayAPIScraper:
 
                 steam_url = ""
                 desc = item.get("description", "")
-                if "steampowered.com" in desc:
-                    import re
-                    m = re.search(r"store\.steampowered\.com/app/(\d+)", desc)
-                    if m:
-                        steam_url = f"https://store.steampowered.com/app/{m.group(1)}"
+                m = STEAM_URL_RE.search(desc)
+                if m:
+                    steam_url = f"https://store.steampowered.com/app/{m.group(1)}"
 
                 source_name = f"freesteamkeys/{trust_score}"
                 if redemption == "Steam Activation":
                     source_name = "freesteamkeys/free"
-                elif "Official" in source:
-                    source_name = "freesteamkeys/official"
+
+                page_url = item.get("freesteamkeys_link") or item.get("giveaway_url", "")
+                if not steam_url and page_url and redemption == "Steam Activation":
+                    steam_url = self._resolve_steam_url(page_url)
 
                 results.append({
                     "source": source_name,
-                    "source_url": item.get("freesteamkeys_link") or steam_url or item.get("giveaway_url", ""),
+                    "source_url": steam_url or page_url,
                     "title": f"FSK: {title[:200]}",
                     "description": desc[:500] if desc else "",
                     "found_at": now,
@@ -111,9 +134,13 @@ class GiveawayAPIScraper:
 
                 event_url = f"https://givee.club{href}" if not href.startswith("http") else href
 
+                steam_url = ""
+                if platform == "Steam":
+                    steam_url = self._resolve_steam_url(event_url)
+
                 results.append({
                     "source": "giveeclub/free" if platform == "Steam" else "giveeclub/other",
-                    "source_url": event_url,
+                    "source_url": steam_url or event_url,
                     "title": f"Givee: {title[:200]}",
                     "description": f"Platform: {platform} | {event_url}",
                     "found_at": now,

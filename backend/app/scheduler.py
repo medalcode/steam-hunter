@@ -230,8 +230,15 @@ def run_scrapers_once(reddit_scraper=None):
                         asf = ASFClient(asf_cfg.ipc_url, asf_cfg.ipc_password)
                         bots_to_try = [asf_cfg.default_bot, "secundaria1", "tryh4rd"]
                         bots_to_try = list(dict.fromkeys(bots_to_try))
+                        DEMO_KEYWORDS = ("demo", "trial", "sample", "free weekend", "free access")
                         for entry in keys_to_redeem:
                             try:
+                                title_lower = (entry.title or "").lower()
+                                if any(kw in title_lower for kw in DEMO_KEYWORDS):
+                                    logger.info(f"Key {entry.code} is demo/trial, skipping")
+                                    entry.status = "skipped"
+                                    entry.error_message = "Demo/trial"
+                                    continue
                                 codes = [c.strip() for c in entry.code.replace(",", " ").split()]
                                 for key in codes:
                                     for bot in bots_to_try:
@@ -275,12 +282,19 @@ def run_scrapers_once(reddit_scraper=None):
                         asf = ASFClient(asf_cfg.ipc_url, asf_cfg.ipc_password)
                         bots_to_try = [asf_cfg.default_bot, "secundaria1", "tryh4rd"]
                         bots_to_try = list(dict.fromkeys(bots_to_try))
+                        DEMO_KEYWORDS = ("demo", "trial", "sample", "free weekend", "free access")
                         for entry in free_games:
                             try:
                                 match = STEAM_APP_RE.search(entry.code or entry.source_url or "")
                                 if not match:
                                     continue
                                 app_id = match.group(1)
+                                title_lower = (entry.title or "").lower()
+                                if any(kw in title_lower for kw in DEMO_KEYWORDS):
+                                    logger.info(f"App {app_id} is demo/trial, skipping")
+                                    entry.status = "skipped"
+                                    entry.error_message = "Demo/trial"
+                                    continue
                                 sub_id = _get_free_sub(app_id)
                                 if not sub_id:
                                     logger.info(f"App {app_id} not free-to-keep, skipping")

@@ -1,40 +1,36 @@
 # Steam Hunter
 
-Bot automatizado que busca códigos gratis, giveaways y juegos temporalmente gratis de Steam en múltiples fuentes (Reddit, GamerPower, Steam Store, CheapShark, Epic Games, etc.) y los canjea automáticamente.
+Bot automatizado que busca códigos gratis, giveaways y juegos temporalmente gratis de Steam en múltiples fuentes (FreeSteamKeys, GamerPower, Givee.Club, Steam Store, CheapShark, Epic Games, etc.) y los canjea automáticamente vía ArchiSteamFarm.
 
 ## Stack
 
 - **Backend**: Python + FastAPI + SQLite + APScheduler
 - **Frontend**: React + Vite + TypeScript
-- **Despliegue**: Docker Compose
+- **Despliegue**: Docker Compose + CI/CD a GCP
 
-## Fuentes (20+)
+## Fuentes (25+)
 
 | Fuente | Tipo | Estado |
 |---|---|---|
-| GamerPower | Keys/ Giveaways curados | ✅ |
+| **FreeSteamKeys API** | Giveaways curados + free-to-keep | ✅ ~29 |
+| **GamerPower API** | Giveaways oficiales | ✅ ~2 |
+| **Givee.Club** | Sorteos + free-to-keep (Steam/Epic/GOG) | ✅ ~44 |
 | Steam Store (temp free) | Juegos en -100% temporal | ✅ |
 | Steam Store (free weekend) | Fines de semana gratis | ✅ |
 | CheapShark API | Deals en $0 o cerca | ✅ |
 | Epic Games Store | Juegos gratis semanales | ✅ |
-| Reddit (r/FreeGameFindings) | Giveaways comunitarios | ✅ |
-| Reddit (r/GameDealsFree) | Deals gratis | ✅ |
-| Reddit (r/FreeSteamGames) | Keys comunitarias | ✅ |
-| Reddit (r/FreeGamesOnSteam) | Giveaways | ✅ |
-| Reddit (r/GameDeals) | Ofertas | ✅ |
 | GiveAway.su | Keys directas | ✅ |
-| Reddit (r/Gamebundles) | Bundles/giveaways | ⏳ |
+| Telegram | Canales de keys | ✅ |
+| Fanatical | Juegos gratis | ✅ |
+| Reddit (5 subreddits) | Giveaways comunitarios | 🔒 403 |
 | SteamDB | Free promotions | 🔒 Cloudflare |
 | SteamGifts | Giveaways | 🔒 Requiere login |
 | GG.deals | Giveaways | 🔒 Cloudflare |
-| FreeSteamKeys | Giveaways comunitarios | ⏳ |
-| IndieGameBundles | Free games | ⏳ |
-| IndieGala Freebies | Freebies | ⏳ |
-| Fanatical | Juegos gratis | ⏳ |
-| Twitter/X | Giveaways | ⏳ |
-| Telegram | Canales de keys | ⏳ |
+| Twitter/X | Giveaways | ⏳ Ocasional |
+| IndieGameBundles | Free games | ⏳ Ocasional |
+| IndieGala Freebies | Freebies | ⏳ Ocasional |
 
-✅ = Funcionando  |  🔒 = Bloqueado (requiere cookies)  |  ⏳ = Ocasional
+✅ = Funcionando  |  🔒 = Bloqueado (403/Cloudflare)  |  ⏳ = Ocasional
 
 ## Cómo correrlo
 
@@ -74,11 +70,11 @@ docker compose up -d --build
 
 ## Integración ASF (ArchiSteamFarm)
 
-Steam Hunter se conecta al IPC de ArchiSteamFarm para canjear keys automáticamente:
+Steam Hunter se conecta al IPC de ArchiSteamFarm para canjear keys y agregar free-to-keep automáticamente:
 
-1. ASF debe estar corriendo con IPC habilitado (puerto `1242` o `1243`)
+1. ASF debe estar corriendo con IPC habilitado (puerto `1243`)
 2. En la web app ir a **Config > ASF**
-3. Ingresar URL del IPC (`http://localhost:1243`) y password si aplica
+3. Ingresar URL del IPC (`http://localhost:1243`)
 4. Seleccionar bot por defecto (`principal`, `secundaria1`, etc.)
 5. Activar **Auto-redeem** para canjear automáticamente al detectar keys nuevas
 
@@ -105,89 +101,44 @@ Steam Hunter se conecta al IPC de ArchiSteamFarm para canjear keys automáticame
 | `POST /api/config/steam-session` | Configurar cuenta Steam |
 | `GET/POST /api/config/notifications` | Configurar notificaciones |
 | `WS /ws` | WebSocket para tiempo real |
-
-## MCP Server (Model Context Protocol)
-
-Steam Hunter incluye un servidor MCP que expone su funcionalidad como herramientas para asistentes de IA (compatible con opencode, Claude, etc.).
-
-### Herramientas MCP
-
-| Tool | Descripción |
-|------|-------------|
-| `search_free_games` | Ejecuta todos los scrapers y guarda resultados |
-| `list_found_codes` | Lista códigos encontrados con filtros |
-| `redeem_with_asf` | Envía una key al IPC de ASF para canjear |
-| `get_asf_status` | Estado de bots de ArchiSteamFarm |
-| `get_stats` | Estadísticas del sistema |
-| `validate_key` | Valida formato de key Steam |
-| `configure_asf` | Configura conexión con ASF |
-
-### Usar con opencode
-
-Agrega a tu `opencode.json`:
-
-```json
-{
-  "mcpServers": {
-    "steam-hunter": {
-      "command": "python",
-      "args": ["-m", "app.mcp_server"],
-      "cwd": "/ruta/a/steam-hunter/backend"
-    }
-  }
-}
-```
-
-Ejemplo de uso:
-
-```
-opencode> busca juegos gratis en steam y canjea las keys con ASF
-```
-
-### Ejecutar standalone
-
-```bash
-cd backend
-source venv/bin/activate
-python -m app.mcp_server
-```
+| `GET /api/scrape` | Forzar ejecución de scrapers |
 
 ## Scrapers
 
 Cada scraper corre cada 15 minutos vía APScheduler:
 
-- **keysites**: GamerPower, GiveAway.su + Reddit fallback via JSON API
-- **moresources**: CheapShark API, 4 subreddits adicionales, Epic Games API, Fanatical
+- **giveaway_apis**: FreeSteamKeys API, GamerPower API, Givee.Club — resuelve URLs de Steam desde páginas de eventos
+- **keysites**: GamerPower, GiveAway.su + Reddit fallback
+- **moresources**: CheapShark API, Reddit, Epic Games API, Fanatical
 - **steamdb**: SteamDB (bloqueado, fallback a Steam Store specials)
 - **steam_store**: Temp free games (-100%), free weekends, F2P
 - **steamgifts**: SteamGifts (requiere cookies)
 - **twitter**: Nitter instances, cuentas de giveaways
 - **telegram**: Canales públicos de keys
-- **reddit**: Reddit API con OAuth
+- **reddit**: Reddit API con OAuth (bloqueado desde GCP)
 
 ---
 
 ## Deploy
 
-This repo auto-deploys to GCP (`136.109.212.18`) via GitHub Actions on push to `main`.
-
+Este repo se auto-despliega a GCP (`136.109.212.18`) vía GitHub Actions al hacer push a `main`.
 
 ## Auto-redeem y Free Games
 
-El sistema detecta automáticamente dos tipos de contenido:
+El sistema procesa automáticamente dos tipos de contenido:
 
 ### Keys de Steam
 Cuando se encuentra una key (formato `XXXXX-XXXXX-XXXXX`), se intenta canjear en **los 3 bots**:
 `principal` → `secundaria1` → `tryh4rd`. Si un bot ya posee el juego, se saltea y se prueba el siguiente.
 
 ### Juegos Free-to-Keep de Steam
-Cuando se detecta un enlace a `store.steampowered.com/app/<ID>` marcado como `giveaway`, el sistema:
+Cuando se detecta un enlace a `store.steampowered.com/app/<ID>`, el sistema:
 
-1. Consulta la API de Steam para obtener el **sub ID promocional gratuito** (paquete con precio $0)
-2. Ejecuta `addlicense sub/<ID>` en **los 3 bots**
-3. Si no encuentra un sub gratuito, intenta `addlicense app/<ID>` como fallback
+1. Consulta la API de Steam para obtener el **sub ID promocional gratuito** (`_get_free_sub`)
+2. Si existe un sub con precio $0, ejecuta `addlicense sub/<ID>` en **los 3 bots**
+3. Si **no** hay sub gratuito, el juego se omite (no es free-to-keep)
 
-Esto permite agregar juegos como Tell Me Why, Winexy, Gravity Circuit automáticamente.
+Esto permite agregar juegos como Tell Me Why, Gravity Circuit, Capcom Arcade Stadium automáticamente, evitando falsos positivos con `app/<ID>`.
 
 ### Bots disponibles
 
@@ -199,7 +150,12 @@ Esto permite agregar juegos como Tell Me Why, Winexy, Gravity Circuit automátic
 
 ## Historial de cambios recientes
 
-- **ASF Client fix**: `get_bots()` ahora parsea correctamente la respuesta de ASF IPC (formato dict-keyed, no lista)
+- **GiveawayAPIScraper**: Nuevo scraper con 3 fuentes (FreeSteamKeys API + GamerPower API + Givee.Club HTML) que resuelve URLs de Steam desde páginas de eventos
+- **Steam URL resolution**: Scraper fetchea páginas de giveaways para extraer `store.steampowered.com/app/<ID>` y permitir auto-redeem
+- **ASF IPC fix**: Se eliminó `IPCPassword` de ASF (bug en v6.3.6.1 causa 401 en todas las requests); IPC funciona sin auth en localhost
+- **Skip non-free**: Eliminado fallback `app/<ID>` — juegos que no son free-to-keep se marcan como `skipped`
+- **Retry existing**: El auto-redeem ahora reprocesa entradas existentes en estado `new` que no se pudieron canjear antes
+- **ASF Client fix**: `get_bots()` ahora parsea correctamente la respuesta de ASF IPC (formato dict-keyed por bot)
 - **Multi-bot redeem**: Auto-redeem prueba los 3 bots en secuencia, no solo el default
-- **Free game detection**: Nuevo helper `_get_free_sub()` que obtiene el sub ID promocional desde la API de Steam
-- **Free-to-Keep auto-add**: Juegos gratis temporales se agregan vía `addlicense` en vez de `redeem_key`
+- **Free game detection**: Helper `_get_free_sub()` que obtiene el sub ID promocional desde la API de Steam
+- **Scheduler fix**: Se agregó `scheduler.start()` que faltaba; scrapers ahora corren cada 15 min

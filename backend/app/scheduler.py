@@ -201,6 +201,15 @@ def run_scrapers_once(reddit_scraper=None):
 
         if new_entries:
             keys_to_redeem = [e for e in new_entries if e.code_type == "key" and e.validation_status == "valid"]
+            existing_keys = db.query(FoundCode).filter(
+                FoundCode.status == "new",
+                FoundCode.code_type == "key",
+                FoundCode.validation_status == "valid",
+            ).all()
+            seen_ids = {e.id for e in keys_to_redeem}
+            for e in existing_keys:
+                if e.id not in seen_ids:
+                    keys_to_redeem.append(e)
             if keys_to_redeem:
                 try:
                     asf_cfg = db.query(ASFConfig).first()
@@ -235,6 +244,17 @@ def run_scrapers_once(reddit_scraper=None):
                     logger.error(f"ASF auto-redeem setup error: {e}")
 
             free_games = [e for e in new_entries if e.code_type == "giveaway" and e.status == "new" and STEAM_APP_RE.search(e.code or e.source_url or "")]
+            existing_free = db.query(FoundCode).filter(
+                FoundCode.status == "new",
+                FoundCode.code_type == "giveaway",
+                FoundCode.source_url.regexp_match(r"store\.steampowered\.com/app/\d+"),
+            ).all() if hasattr(FoundCode.source_url, "regexp_match") else []
+            if not existing_free:
+                existing_free = [e for e in db.query(FoundCode).filter(
+                    FoundCode.status == "new",
+                    FoundCode.code_type == "giveaway",
+                ).all() if STEAM_APP_RE.search(e.source_url or "")]
+            free_games = list({e.id: e for e in free_games + existing_free}.values())
             if free_games:
                 try:
                     asf_cfg = db.query(ASFConfig).first()

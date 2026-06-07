@@ -61,6 +61,7 @@ def run_scrapers_once(reddit_scraper=None):
     from .scrapers.keysites import KeySitesScraper
     from .scrapers.moresources import MoreSourcesScraper
     from .scrapers.giveaway_apis import GiveawayAPIScraper
+    from .scrapers.xbox import XboxScraper
     from .validator import validate_key_format, validate_gift_link
     from .notifications import Notifier, NotificationConfig as NotifCfg
 
@@ -72,6 +73,7 @@ def run_scrapers_once(reddit_scraper=None):
     moresources_scraper = MoreSourcesScraper()
     steam_scraper = SteamStoreScraper()
     giveaway_api_scraper = GiveawayAPIScraper()
+    xbox_scraper = XboxScraper()
 
     db = SessionLocal()
     try:
@@ -96,6 +98,7 @@ def run_scrapers_once(reddit_scraper=None):
             ("Key Sites", keysites_scraper.search_all),
             ("CheapShark/Epic/More", moresources_scraper.search_all),
             ("Freebie APIs", giveaway_api_scraper.search_all),
+            ("Xbox Freebies", xbox_scraper.search_freebies),
         ]
 
         for name, scrape_fn in scrapers_config:
@@ -111,6 +114,7 @@ def run_scrapers_once(reddit_scraper=None):
             "steamdb", "steam/specials", "epic/free",
             "cheapshark/free", "cheapshark/deals",
             "fanatical/free", "freesteamkeys", "giveeclub",
+            "xbox/free",
         }
 
         new_entries = []
@@ -200,12 +204,20 @@ def run_scrapers_once(reddit_scraper=None):
                 logger.error(f"WebSocket broadcast failed: {e}")
 
         if new_entries:
-            keys_to_redeem = [e for e in new_entries if e.code_type == "key" and e.validation_status == "valid"]
-            existing_keys = db.query(FoundCode).filter(
-                FoundCode.status == "new",
-                FoundCode.code_type == "key",
-                FoundCode.validation_status == "valid",
-            ).all()
+            keys_to_redeem = [
+                e for e in new_entries
+                if e.code_type == "key"
+                and e.validation_status == "valid"
+                and not e.source.startswith("xbox/")
+            ]
+            existing_keys = [
+                e for e in db.query(FoundCode).filter(
+                    FoundCode.status == "new",
+                    FoundCode.code_type == "key",
+                    FoundCode.validation_status == "valid",
+                ).all()
+                if not e.source.startswith("xbox/")
+            ]
             seen_ids = {e.id for e in keys_to_redeem}
             for e in existing_keys:
                 if e.id not in seen_ids:

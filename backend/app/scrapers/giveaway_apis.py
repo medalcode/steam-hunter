@@ -108,15 +108,10 @@ class GiveawayAPIScraper:
                         platform = "Epic"
 
                 event_url = href if href.startswith("http") else f"https://givee.club{href}"
-                steam_url = ""
-                import re
-                m = re.search(r"store\.steampowered\.com/app/(\d+)", resp.text)
-                if m:
-                    steam_url = f"https://store.steampowered.com/app/{m.group(1)}"
 
                 results.append({
                     "source": "giveeclub/free" if "Steam" in platform else "giveeclub/other",
-                    "source_url": steam_url or event_url,
+                    "source_url": event_url,
                     "title": f"Givee: {title[:200]}",
                     "description": f"Platform: {platform} | {event_url}",
                     "found_at": now,

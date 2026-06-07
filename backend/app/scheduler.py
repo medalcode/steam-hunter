@@ -60,15 +60,17 @@ def run_scrapers_once(reddit_scraper=None):
     from .scrapers.telegram_scraper import TelegramScraper
     from .scrapers.keysites import KeySitesScraper
     from .scrapers.moresources import MoreSourcesScraper
+    from .scrapers.giveaway_apis import GiveawayAPIScraper
     from .notifications import Notifier, NotificationConfig as NotifCfg
 
     twitter_scraper = TwitterScraper()
     steamdb_scraper = SteamDBScraper()
-    steam_scraper = SteamStoreScraper()
     steamgifts_scraper = SteamGiftsScraper()
     telegram_scraper = TelegramScraper()
     keysites_scraper = KeySitesScraper()
     moresources_scraper = MoreSourcesScraper()
+    steam_scraper = SteamStoreScraper()
+    giveaway_api_scraper = GiveawayAPIScraper()
 
     db = SessionLocal()
     try:
@@ -92,6 +94,7 @@ def run_scrapers_once(reddit_scraper=None):
             ("Telegram", telegram_scraper.search_channels),
             ("Key Sites", keysites_scraper.search_all),
             ("CheapShark/Epic/More", moresources_scraper.search_all),
+            ("Freebie APIs", giveaway_api_scraper.search_all),
         ]
 
         for name, scrape_fn in scrapers_config:
@@ -106,7 +109,7 @@ def run_scrapers_once(reddit_scraper=None):
             "gamerpower", "giveaway.su", "steamgifts",
             "steamdb", "steam/specials", "epic/free",
             "cheapshark/free", "cheapshark/deals",
-            "fanatical/free",
+            "fanatical/free", "freesteamkeys",
         }
 
         new_entries = []

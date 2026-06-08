@@ -341,26 +341,49 @@ async def _handle_configure_asf(db: SessionLocal, arguments: dict) -> list[TextC
     return [TextContent(type="text", text="Configuración ASF actualizada:\n" + "\n".join(changed))]
 
 
-async def main():
+def get_init_options() -> InitializationOptions:
+    return InitializationOptions(
+        server_name="steam-hunter",
+        server_version="0.1.0",
+        capabilities=server.get_capabilities(
+            notification_options=NotificationOptions(),
+            experimental_capabilities={},
+        ),
+    )
+
+
+async def main_stdio():
     from mcp.server.stdio import stdio_server
 
     init_db()
 
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="steam-hunter",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
-        )
+        await server.run(read_stream, write_stream, get_init_options())
+
+
+def create_sse_app():
+    from mcp.server.sse import SseServerTransport
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+
+    sse = SseServerTransport("/messages/")
+
+    async def handle_sse(request):
+        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+            init_db()
+            await server.run(streams[0], streams[1], get_init_options())
+
+    async def handle_messages(request):
+        await sse.handle_post_message(request.scope, request.receive, request._send)
+
+    return Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Route("/messages/", endpoint=handle_messages, methods=["POST"]),
+        ]
+    )
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+    asyncio.run(main_stdio())

@@ -1,23 +1,45 @@
 services:
+  asf:
+    image: justarchi/archisteamfarm:6.3.6.1
+    container_name: asf
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    network_mode: host
+    volumes:
+      - ./asf-config:/app/config
+      - ./asf-logs:/app/logs
+    environment:
+      - ASF_ARGS=--no-restart
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:1242/api"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   backend:
     build: ./backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
-      - steam_hunter_data:/app
+      - steam_hunter_data:/app/data
     environment:
       - LOG_LEVEL=INFO
-      - ASF_IPC_URL=${ASF_IPC_URL:-http://host.docker.internal:1243}
-      - ASF_IPC_PASSWORD=${ASF_IPC_PASSWORD:-}
-      - ASF_DEFAULT_BOT=${ASF_DEFAULT_BOT:-principal}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - ASF_IPC_URL=http://127.0.0.1:1242
+      - ASF_IPC_PASSWORD=
+      - ASF_DEFAULT_BOT=principal
+      - ASF_AUTO_REDEEM=true
+      - STEAM_HUNTER_API_KEY=${STEAM_HUNTER_API_KEY:-}
+    depends_on:
+      asf:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
     build: ./frontend
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
     depends_on:
       - backend
     restart: unless-stopped

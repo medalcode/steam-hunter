@@ -2,22 +2,41 @@ import csv
 import io
 import json
 import logging
+import os
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from .database import init_db, get_db, FoundCode, SteamAccount, SearchSource, NotificationConfig, ASFConfig
-from .scheduler import start_scheduler, set_websocket_manager, run_scrapers_once
+from .database import init_db, get_db, FoundCode, SteamAccount, SearchSource, NotificationConfig, ASFConfig, APIKey
+from .scheduler import start_scheduler, set_websocket_manager, run_scrapers_once, cleanup_old_entries
+from .mcp_server import create_sse_app
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+_API_KEY_ENV = os.environ.get("STEAM_HUNTER_API_KEY", "")
+
+def _check_api_key(request: Request, db: Session = Depends(get_db)):
+    if not _API_KEY_ENV:
+        return True
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+        if token == _API_KEY_ENV:
+            return True
+        key_entry = db.query(APIKey).filter(APIKey.key == token, APIKey.is_active == True).first()
+        if key_entry:
+            return True
+    raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
 
 class ConnectionManager:
     def __init__(self):
@@ -50,6 +69,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Steam Hunter", lifespan=lifespan)
 
+mcp_sse_app = create_sse_app()
+app.mount("/mcp", mcp_sse_app)
+
+@app.get("/api/health")
+def health_check(db: Session = Depends(get_db)):
+    asf_cfg = db.query(ASFConfig).first()
+    bots_online = 0
+    if asf_cfg and asf_cfg.ipc_url:
+        from .asf_client import ASFClient
+        asf = ASFClient(asf_cfg.ipc_url, asf_cfg.ipc_password)
+        bots = asf.get_bots()
+        bots_online = sum(1 for b in bots if b.get("online"))
+    total = db.query(FoundCode).count()
+    redeemed = db.query(FoundCode).filter(FoundCode.status == "redeemed").count()
+    pending = db.query(FoundCode).filter(FoundCode.status == "new").count()
+    return {
+        "status": "ok",
+        "bots_online": bots_online,
+        "total_codes": total,
+        "redeemed": redeemed,
+        "pending": pending,
+        "scheduler_running": hasattr(app.state, "scheduler") and app.state.scheduler.running if hasattr(app.state, "scheduler") else True,
+    }
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -57,6 +100,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+EXCLUDED_AUTH_PATHS = {"/api/health", "/mcp/sse", "/mcp/messages/", "/docs", "/openapi.json", "/ws"}
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if path in EXCLUDED_AUTH_PATHS or path.startswith("/mcp/") or path.startswith("/ws"):
+        return await call_next(request)
+    if not _API_KEY_ENV:
+        return await call_next(request)
+    from starlette.responses import JSONResponse
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+        if token == _API_KEY_ENV:
+            return await call_next(request)
+        db = next(get_db())
+        try:
+            key_entry = db.query(APIKey).filter(APIKey.key == token, APIKey.is_active == True).first()
+            if key_entry:
+                return await call_next(request)
+        finally:
+            db.close()
+    return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
 
 class RedeemRequest(BaseModel):
     code_id: int
@@ -208,6 +275,11 @@ def trigger_scrape():
     elapsed = time.time() - start
 
     return {"status": "ok", "new_entries": len(entries), "elapsed_seconds": round(elapsed, 1)}
+
+@app.post("/api/cleanup")
+def trigger_cleanup():
+    cleanup_old_entries()
+    return {"status": "ok", "message": "Cleanup completed"}
 
 @app.post("/api/asf/retry-failed")
 def retry_failed_redeems(bot: str | None = None, db: Session = Depends(get_db)):

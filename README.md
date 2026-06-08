@@ -4,9 +4,10 @@ Bot automatizado que busca códigos gratis, giveaways y juegos temporalmente gra
 
 ## Stack
 
-- **Backend**: Python + FastAPI + SQLite + APScheduler
+- **Backend**: Python + FastAPI + SQLite + APScheduler + **MCP Server (SSE)**
 - **Frontend**: React + Vite + TypeScript
 - **Despliegue**: Docker Compose + CI/CD a GCP
+- **ASF**: ArchiSteamFarm v6.3.6.1 (Docker, network=host)
 
 ## Fuentes (25+)
 
@@ -18,6 +19,8 @@ Bot automatizado que busca códigos gratis, giveaways y juegos temporalmente gra
 | Steam Store (temp free) | Juegos en -100% temporal | ✅ |
 | Steam Store (free weekend) | Fines de semana gratis | ✅ |
 | CheapShark API | Deals en $0 o cerca | ✅ |
+| **GOG Catalog** | Juegos gratis en GOG | ✅ |
+| **Xbox Catalog** | Juegos gratis en Xbox | ✅ |
 | Epic Games Store | Juegos gratis semanales | ✅ |
 | GiveAway.su | Keys directas | ✅ |
 | Telegram | Canales de keys | ✅ |
@@ -68,15 +71,15 @@ docker compose up -d --build
 6. (Opcional) **Config > Notifications** — Discord webhook o Telegram
 7. (Opcional) **Config > ASF** — conectar ArchiSteamFarm para auto-canjear keys
 
+## Autenticación API
+
+Opcional. Setear `STEAM_HUNTER_API_KEY` en el entorno para requerir Bearer token en todas las rutas excepto `/api/health`, `/mcp/*`, `/docs`, `/openapi.json`, `/ws`.
+
 ## Integración ASF (ArchiSteamFarm)
 
-Steam Hunter se conecta al IPC de ArchiSteamFarm para canjear keys y agregar free-to-keep automáticamente:
+En Docker, ASF corre como servicio adjunto (`network_mode: host`, puerto `1242`). Backend se conecta a `http://127.0.0.1:1242` sin password.
 
-1. ASF debe estar corriendo con IPC habilitado (puerto `1243`)
-2. En la web app ir a **Config > ASF**
-3. Ingresar URL del IPC (`http://localhost:1243`)
-4. Seleccionar bot por defecto (`principal`, `secundaria1`, etc.)
-5. Activar **Auto-redeem** para canjear automáticamente al detectar keys nuevas
+Para configurar bots manualmente, editar los JSONs en `./asf-config/`.
 
 ### Endpoints ASF
 
@@ -90,11 +93,13 @@ Steam Hunter se conecta al IPC de ArchiSteamFarm para canjear keys y agregar fre
 
 | Ruta | Descripción |
 |---|---|
+| `GET /api/health` | Health check + bots online + stats |
 | `GET /api/codes` | Listar códigos (filtros: status, code_type, source) |
 | `GET /api/stats` | Estadísticas |
 | `POST /api/redeem` | Canjear código |
 | `POST /api/validate/{id}` | Validar formato de key |
 | `POST /api/auto-enter` | Auto-participar en giveaway |
+| `POST /api/cleanup` | Limpiar entradas antiguas |
 | `GET /api/export/json` | Exportar a JSON |
 | `GET /api/export/csv` | Exportar a CSV |
 | `POST /api/config/reddit` | Configurar Reddit |
@@ -103,6 +108,29 @@ Steam Hunter se conecta al IPC de ArchiSteamFarm para canjear keys y agregar fre
 | `WS /ws` | WebSocket para tiempo real |
 | `GET /api/scrape` | Forzar ejecución de scrapers |
 
+## MCP Server (Model Context Protocol)
+
+El backend expone un **servidor MCP via SSE** montado en `/mcp`. Compatible con asistentes IA que soporten el protocolo MCP.
+
+### Tools disponibles (7)
+
+| Tool | Descripción |
+|---|---|
+| `search_free_games` | Ejecuta todos los scrapers |
+| `list_found_codes` | Consulta códigos con filtros (estado, tipo, fuente) |
+| `redeem_with_asf` | Envía key a ASF para canje |
+| `get_asf_status` | Estado de los bots de ASF |
+| `get_stats` | Estadísticas del sistema |
+| `validate_key` | Valida formato de key Steam |
+| `configure_asf` | Actualiza configuración de conexión ASF |
+
+### Conexión
+
+```
+SSE endpoint: /mcp/sse
+Messages POST: /mcp/messages/
+```
+
 ## Scrapers
 
 Cada scraper corre cada 15 minutos vía APScheduler:
@@ -110,7 +138,8 @@ Cada scraper corre cada 15 minutos vía APScheduler:
 - **giveaway_apis**: FreeSteamKeys API, GamerPower API, Givee.Club — resuelve URLs de Steam desde páginas de eventos
 - **keysites**: GamerPower, GiveAway.su + Reddit fallback
 - **moresources**: CheapShark API, Reddit, Epic Games API, Fanatical
-- **steamdb**: SteamDB (bloqueado, fallback a Steam Store specials)
+- **gog**: GOG Catalog — free games en GOG.com
+- **xbox_catalog**: Xbox Catalog — free games en Xbox
 - **steam_store**: Temp free games (-100%), free weekends, F2P
 - **steamgifts**: SteamGifts (requiere cookies)
 - **twitter**: Nitter instances, cuentas de giveaways
@@ -121,7 +150,48 @@ Cada scraper corre cada 15 minutos vía APScheduler:
 
 ## Deploy
 
-Este repo se auto-despliega a GCP (`136.109.212.18`) vía GitHub Actions al hacer push a `main`.
+### Docker Compose (recomendado)
+
+```bash
+docker compose up -d --build
+```
+
+Esto levanta ASF + Backend + Frontend. ASF usa `network_mode: host`.
+
+### GCP VM
+
+El repo se auto-despliega a GCP (`136.109.212.18`) vía GitHub Actions al hacer push a `main`:
+
+1. SSH a la VM como `medalcode`
+2. `git pull origin main`
+3. `pip install -r requirements.txt` y restart del servicio
+4. `npm install && npm run build` en frontend
+
+### Variables de entorno
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `STEAM_HUNTER_API_KEY` | `""` | API Key para autenticación Bearer |
+| `ASF_IPC_URL` | `http://127.0.0.1:1242` | URL del IPC de ASF |
+| `ASF_IPC_PASSWORD` | `""` | Password del IPC (vacío = sin auth) |
+| `ASF_DEFAULT_BOT` | `principal` | Bot por defecto para canjes |
+| `ASF_AUTO_REDEEM` | `true` | Auto-canjear al detectar keys |
+| `XBOX_CATALOG_PAGES` | `15` | Páginas a escanear en catálogo Xbox |
+
+## Migraciones (Alembic)
+
+```bash
+cd backend
+alembic upgrade head    # Aplicar migraciones
+alembic revision --autogenerate -m "desc"   # Crear nueva migración
+```
+
+## Tests
+
+```bash
+cd backend
+pytest -v
+```
 
 ## Auto-redeem y Free Games
 

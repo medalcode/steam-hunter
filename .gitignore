@@ -8,3 +8,4 @@ dist/
 .DS_Store
 ms-playwright/
 playwright/
+xbox_cookies.json

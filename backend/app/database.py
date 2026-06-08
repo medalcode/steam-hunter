@@ -1,9 +1,12 @@
 import os
+from pathlib import Path
 from datetime import datetime, timezone
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, JSON
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-DATABASE_URL = "sqlite:///./steam_hunter.db"
+_DB_DIR = Path(os.environ.get("STEAM_HUNTER_DB_DIR", Path(__file__).resolve().parent.parent))
+_DB_PATH = _DB_DIR / "steam_hunter.db"
+DATABASE_URL = f"sqlite:///{_DB_PATH}"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
@@ -57,6 +60,16 @@ class NotificationConfig(Base):
     notify_on_new = Column(Boolean, default=True)
     notify_on_redeem = Column(Boolean, default=False)
     notify_on_fail = Column(Boolean, default=True)
+
+class APIKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String(128), unique=True, nullable=False)
+    name = Column(String(100), default="default")
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 
 class ASFConfig(Base):
     __tablename__ = "asf_config"

@@ -220,6 +220,9 @@ Esto permite agregar juegos como Tell Me Why, Gravity Circuit, Capcom Arcade Sta
 
 ## Historial de cambios recientes
 
+- **2026-06-07 — Epic Extras claiming**: 10/16 Epic Extras items reclamados vía GraphQL + browser (Fall Guys, Infinity Nikki, WW, NW, STO, Asphalt, WW, WoW, Idle Champions, Firestone). Discord Nitro/Duet Night/RAVEN2 no reclamables (requieren base game).
+- **2026-06-07 — GCP Budgets**: Configurados budgets de $1, $10, $100, $1000 CLP con alertas al 50%, 90%, 100%.
+- **2026-06-07 — ASF 3 cuentas**: Configuradas y operativas (principal/secundaria1/tryh4rd). Farming completado.
 - **GiveawayAPIScraper**: Nuevo scraper con 3 fuentes (FreeSteamKeys API + GamerPower API + Givee.Club HTML) que resuelve URLs de Steam desde páginas de eventos
 - **Steam URL resolution**: Scraper fetchea páginas de giveaways para extraer `store.steampowered.com/app/<ID>` y permitir auto-redeem
 - **ASF IPC fix**: Se eliminó `IPCPassword` de ASF (bug en v6.3.6.1 causa 401 en todas las requests); IPC funciona sin auth en localhost

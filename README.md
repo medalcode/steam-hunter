@@ -9,6 +9,14 @@ Bot automatizado que busca códigos gratis, giveaways y juegos temporalmente gra
 - **Despliegue**: Docker Compose + CI/CD a GCP
 - **ASF**: ArchiSteamFarm v6.3.6.1 (Docker, network=host)
 
+## Seguridad
+
+- **CORS**: Restringido a `localhost:5173`, `localhost:8000`, `127.0.0.1:8000`
+- **Rate limiting**: 30 requests/60s por IP en endpoints `/api/*`
+- **ASF IPC**: Usa header `X-API-Key` para autenticación (puerto 1242)
+- **API Key opcional**: Setear `STEAM_HUNTER_API_KEY` para requerir Bearer token
+- **.dockerignore**: Excluye `venv/`, `__pycache__/`, `*.db`, `xbox_cookies.json`
+
 ## Fuentes (25+)
 
 | Fuente | Tipo | Estado |
@@ -133,7 +141,7 @@ Messages POST: /mcp/messages/
 
 ## Scrapers
 
-Cada scraper corre cada 15 minutos vía APScheduler:
+Los scrapers se ejecutan **en paralelo** (ThreadPoolExecutor, max 6 workers) cada 15 minutos vía APScheduler. Cada scraper tiene cooldown de 2 horas tras 3 fallos consecutivos.
 
 - **giveaway_apis**: FreeSteamKeys API, GamerPower API, Givee.Club — resuelve URLs de Steam desde páginas de eventos
 - **keysites**: GamerPower, GiveAway.su + Reddit fallback
@@ -145,6 +153,7 @@ Cada scraper corre cada 15 minutos vía APScheduler:
 - **twitter**: Nitter instances, cuentas de giveaways
 - **telegram**: Canales públicos de keys
 - **reddit**: Reddit API con OAuth (bloqueado desde GCP)
+- **BaseScraper**: Clase abstracta compartida con `_fetch()`, `_headers()`, y `make_result()`
 
 ---
 
@@ -160,7 +169,7 @@ Esto levanta ASF + Backend + Frontend. ASF usa `network_mode: host`.
 
 ### GCP VM
 
-El repo se auto-despliega a GCP (`136.109.212.18`) vía GitHub Actions al hacer push a `main`:
+El repo se auto-despliega a GCP vía GitHub Actions al hacer push a `main` (IP configurada como `GCP_VM_HOST` en secrets del repo):
 
 1. SSH a la VM como `medalcode`
 2. `git pull origin main`

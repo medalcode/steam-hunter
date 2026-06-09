@@ -2,8 +2,10 @@ import json
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone, timedelta
+
 import requests as http_requests
-from datetime import datetime, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -14,7 +16,6 @@ STEAM_APP_RE = re.compile(r"store\.steampowered\.com/app/(\d+)")
 # Scraper backoff: skip dead sources after N consecutive failures
 _scraper_cooldowns: dict[str, float] = {}
 SCRAPER_BACKOFF_MINUTES = 120  # skip for 2 hours after failure
-SCRAPER_MAX_CONSECUTIVE_FAILURES = 3
 
 def _should_skip_scraper(name: str) -> bool:
     last_fail = _scraper_cooldowns.get(name, 0)
@@ -138,34 +139,39 @@ def run_scrapers_once(reddit_scraper=None):
         all_results = []
 
         scrapers_config = [
-            ("Steam Freebies", steam_scraper.search_freebies, 1),
-            ("Steam F2P", steam_scraper.get_permanent_free, 1),
-            ("Freebie APIs", giveaway_api_scraper.search_all, 2),
-            ("CheapShark/Epic/More", moresources_scraper.search_all, 2),
-            ("Xbox Freebies", xbox_scraper.search_freebies, 2),
-            ("Xbox Catalog", xbox_catalog_scraper.search_freebies, 2),
-            ("GOG Freebies", gog_scraper.search_freebies, 2),
-            ("Telegram", telegram_scraper.search_channels, 3),
-            ("Key Sites", keysites_scraper.search_all, 3),
-            ("SteamGifts", steamgifts_scraper.get_giveaways, 4),
-            ("Twitter", twitter_scraper.search_giveaways, 5),
-            ("Reddit", lambda: reddit_scraper.search_recent() if reddit_scraper else [], 5),
-            ("SteamDB Free", steamdb_scraper.get_free_promotions, 5),
-            ("SteamDB Giveaways", steamdb_scraper.get_giveaways, 5),
+            ("Steam Freebies", steam_scraper.search_freebies),
+            ("Steam F2P", steam_scraper.get_permanent_free),
+            ("Freebie APIs", giveaway_api_scraper.search_all),
+            ("CheapShark/Epic/More", moresources_scraper.search_all),
+            ("Xbox Freebies", xbox_scraper.search_freebies),
+            ("Xbox Catalog", xbox_catalog_scraper.search_freebies),
+            ("GOG Freebies", gog_scraper.search_freebies),
+            ("Telegram", telegram_scraper.search_channels),
+            ("Key Sites", keysites_scraper.search_all),
+            ("SteamGifts", steamgifts_scraper.get_giveaways),
+            ("Twitter", twitter_scraper.search_giveaways),
+            ("Reddit", lambda: reddit_scraper.search_recent() if reddit_scraper else []),
+            ("SteamDB Free", steamdb_scraper.get_free_promotions),
+            ("SteamDB Giveaways", steamdb_scraper.get_giveaways),
         ]
-        scrapers_config.sort(key=lambda x: x[2])
 
-        for name, scrape_fn, _ in scrapers_config:
-            if _should_skip_scraper(name):
-                continue
-            try:
-                results = scrape_fn()
-                all_results.extend(results)
-                logger.info(f"{name}: {len(results)} results")
-                _record_scraper_success(name)
-            except Exception as e:
-                logger.error(f"{name} scrape failed: {e}")
-                _record_scraper_failure(name)
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            future_map = {}
+            for name, scrape_fn in scrapers_config:
+                if _should_skip_scraper(name):
+                    continue
+                future = executor.submit(scrape_fn)
+                future_map[future] = name
+            for future in as_completed(future_map):
+                name = future_map[future]
+                try:
+                    results = future.result(timeout=60)
+                    all_results.extend(results)
+                    logger.info(f"{name}: {len(results)} results")
+                    _record_scraper_success(name)
+                except Exception as e:
+                    logger.error(f"{name} scrape failed: {e}")
+                    _record_scraper_failure(name)
 
         GIVEAWAY_SOURCES = {
             "gamerpower", "giveaway.su", "steamgifts",
@@ -236,17 +242,16 @@ def run_scrapers_once(reddit_scraper=None):
 
             db.commit()
 
-            for entry in new_entries:
+            if new_entries:
                 try:
-                    notifier.send_code_found(
-                        code_value=entry.code,
-                        code_type=entry.code_type,
-                        source=entry.source,
-                        title=entry.title or "",
-                        url=entry.source_url or "",
-                    )
+                    batch_msg = f"**{len(new_entries)} nuevos códigos encontrados:**\n"
+                    for entry in new_entries[:10]:
+                        batch_msg += f"• [{entry.source}] {entry.title or entry.code[:40]}\n"
+                    if len(new_entries) > 10:
+                        batch_msg += f"... y {len(new_entries) - 10} más"
+                    notifier.send("Nuevos códigos encontrados", batch_msg)
                 except Exception as e:
-                    logger.error(f"Notification failed: {e}")
+                    logger.error(f"Batch notification failed: {e}")
 
         if _websocket_manager and new_entries:
             try:
@@ -262,11 +267,9 @@ def run_scrapers_once(reddit_scraper=None):
             except Exception as e:
                 logger.error(f"WebSocket broadcast failed: {e}")
 
-        all_entries_for_redeem = new_entries or db.query(FoundCode).filter(
-            FoundCode.status == "new",
-        ).limit(1).all()
+        asf_cfg = db.query(ASFConfig).first() if (new_entries or db.query(FoundCode).filter(FoundCode.status == "new").limit(1).first()) else None
 
-        if all_entries_for_redeem:
+        if asf_cfg and asf_cfg.auto_redeem and asf_cfg.ipc_url:
             keys_to_redeem = [
                 e for e in (new_entries or [])
                 if e.code_type == "key"
@@ -286,27 +289,22 @@ def run_scrapers_once(reddit_scraper=None):
                 if e.id not in seen_ids:
                     keys_to_redeem.append(e)
             if keys_to_redeem:
-                try:
-                    asf_cfg = db.query(ASFConfig).first()
-                    if asf_cfg and asf_cfg.auto_redeem and asf_cfg.ipc_url:
-                        from .asf_client import ASFClient
-                        asf = ASFClient(asf_cfg.ipc_url, asf_cfg.ipc_password)
-                        bots_to_try = [asf_cfg.default_bot, "secundaria1"]
-                        bots_to_try = list(dict.fromkeys(bots_to_try))
-                        DEMO_KEYWORDS = ("demo", "trial", "sample", "free weekend", "free access")
-                        for entry in keys_to_redeem:
-                            try:
-                                title_lower = (entry.title or "").lower()
-                                if any(kw in title_lower for kw in DEMO_KEYWORDS):
-                                    logger.info(f"Key {entry.code} is demo/trial, skipping")
-                                    entry.status = "skipped"
-                                    entry.error_message = "Demo/trial"
-                                    continue
-                                _redeem_key_on_bots(asf, entry, bots_to_try, db)
-                            except Exception as e:
-                                logger.error(f"ASF redeem error for {entry.code}: {e}")
-                except Exception as e:
-                    logger.error(f"ASF auto-redeem setup error: {e}")
+                from .asf_client import ASFClient
+                asf = ASFClient(asf_cfg.ipc_url, asf_cfg.ipc_password)
+                bots_to_try = [asf_cfg.default_bot, "secundaria1"]
+                bots_to_try = list(dict.fromkeys(bots_to_try))
+                DEMO_KEYWORDS = ("demo", "trial", "sample", "free weekend", "free access")
+                for entry in keys_to_redeem:
+                    try:
+                        title_lower = (entry.title or "").lower()
+                        if any(kw in title_lower for kw in DEMO_KEYWORDS):
+                            logger.info(f"Key {entry.code} is demo/trial, skipping")
+                            entry.status = "skipped"
+                            entry.error_message = "Demo/trial"
+                            continue
+                        _redeem_key_on_bots(asf, entry, bots_to_try, db)
+                    except Exception as e:
+                        logger.error(f"ASF redeem error for {entry.code}: {e}")
 
             free_games = [
                 e for e in (new_entries or [])
@@ -322,38 +320,33 @@ def run_scrapers_once(reddit_scraper=None):
                 if e.id not in seen_free:
                     free_games.append(e)
             if free_games:
-                try:
-                    asf_cfg = db.query(ASFConfig).first()
-                    if asf_cfg and asf_cfg.auto_redeem and asf_cfg.ipc_url:
-                        from .asf_client import ASFClient
-                        asf = ASFClient(asf_cfg.ipc_url, asf_cfg.ipc_password)
-                        bots_to_try = [asf_cfg.default_bot, "secundaria1"]
-                        bots_to_try = list(dict.fromkeys(bots_to_try))
-                        DEMO_KEYWORDS = ("demo", "trial", "sample", "free weekend", "free access")
-                        for entry in free_games:
-                            try:
-                                match = STEAM_APP_RE.search(entry.code or entry.source_url or "")
-                                if not match:
-                                    continue
-                                app_id = match.group(1)
-                                title_lower = (entry.title or "").lower()
-                                if any(kw in title_lower for kw in DEMO_KEYWORDS):
-                                    logger.info(f"App {app_id} is demo/trial, skipping")
-                                    entry.status = "skipped"
-                                    entry.error_message = "Demo/trial"
-                                    continue
-                                sub_id = _get_free_sub(app_id)
-                                if not sub_id:
-                                    logger.info(f"App {app_id} not free-to-keep, skipping")
-                                    entry.status = "skipped"
-                                    entry.error_message = "Not free-to-keep on Steam"
-                                    continue
-                                sub_id = f"sub/{sub_id}"
-                                _add_free_game_on_bots(asf, entry, app_id, sub_id, bots_to_try, db)
-                            except Exception as e:
-                                logger.error(f"Free game add error for {entry.code}: {e}")
-                except Exception as e:
-                    logger.error(f"Free game auto-add setup error: {e}")
+                from .asf_client import ASFClient
+                asf = ASFClient(asf_cfg.ipc_url, asf_cfg.ipc_password)
+                bots_to_try = [asf_cfg.default_bot, "secundaria1"]
+                bots_to_try = list(dict.fromkeys(bots_to_try))
+                DEMO_KEYWORDS = ("demo", "trial", "sample", "free weekend", "free access")
+                for entry in free_games:
+                    try:
+                        match = STEAM_APP_RE.search(entry.code or entry.source_url or "")
+                        if not match:
+                            continue
+                        app_id = match.group(1)
+                        title_lower = (entry.title or "").lower()
+                        if any(kw in title_lower for kw in DEMO_KEYWORDS):
+                            logger.info(f"App {app_id} is demo/trial, skipping")
+                            entry.status = "skipped"
+                            entry.error_message = "Demo/trial"
+                            continue
+                        sub_id = _get_free_sub(app_id)
+                        if not sub_id:
+                            logger.info(f"App {app_id} not free-to-keep, skipping")
+                            entry.status = "skipped"
+                            entry.error_message = "Not free-to-keep on Steam"
+                            continue
+                        sub_id = f"sub/{sub_id}"
+                        _add_free_game_on_bots(asf, entry, app_id, sub_id, bots_to_try, db)
+                    except Exception as e:
+                        logger.error(f"Free game add error for {entry.code}: {e}")
 
         return new_entries
     except Exception as e:
@@ -522,21 +515,20 @@ def check_asf_health():
 
 def cleanup_old_entries():
     from .database import SessionLocal, FoundCode
-    from datetime import timedelta
 
     db = SessionLocal()
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         old = db.query(FoundCode).filter(
             FoundCode.found_at < cutoff,
-            FoundCode.status.in_(["failed", "expired", "skipped"]),
+            FoundCode.status.in_(["failed", "expired", "skipped", "redeemed"]),
         ).all()
         count = len(old)
         for entry in old:
             db.delete(entry)
         db.commit()
         if count:
-            logger.info(f"Cleaned up {count} old entries (failed/expired/skipped older than 30 days)")
+            logger.info(f"Cleaned up {count} old entries (all statuses older than 30 days)")
     except Exception as e:
         logger.error(f"DB cleanup failed: {e}")
         db.rollback()

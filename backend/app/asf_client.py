@@ -4,7 +4,7 @@ import json
 
 logger = logging.getLogger(__name__)
 
-ASF_IPC_DEFAULT = "http://localhost:1243"
+ASF_IPC_DEFAULT = "http://localhost:1242"
 
 class ASFClient:
     def __init__(self, ipc_url: str = ASF_IPC_DEFAULT, password: str = ""):
@@ -15,7 +15,7 @@ class ASFClient:
             "Content-Type": "application/json",
         })
         if password:
-            self.session.headers.update({"Authentication": password})
+            self.session.headers.update({"X-API-Key": password})
 
     def _do_request(self, method: str, path: str, data: dict | None = None):
         url = f"{self.ipc_url}{path}"

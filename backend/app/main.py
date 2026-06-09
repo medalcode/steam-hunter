@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import secrets
+import time
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -21,6 +23,20 @@ from .mcp_server import create_sse_app
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Simple in-memory rate limiter
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_REQUESTS = 30
+RATE_LIMIT_WINDOW = 60
+
+def _check_rate_limit(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    window = _rate_limit_store[client_ip]
+    window[:] = [t for t in window if now - t < RATE_LIMIT_WINDOW]
+    if len(window) >= RATE_LIMIT_REQUESTS:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+    window.append(now)
 
 _API_KEY_ENV = os.environ.get("STEAM_HUNTER_API_KEY", "")
 
@@ -95,7 +111,7 @@ def health_check(db: Session = Depends(get_db)):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://localhost:8000", "http://127.0.0.1:8000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -104,8 +120,10 @@ app.add_middleware(
 EXCLUDED_AUTH_PATHS = {"/api/health", "/mcp/sse", "/mcp/messages/", "/docs", "/openapi.json", "/ws"}
 
 @app.middleware("http")
-async def auth_middleware(request: Request, call_next):
+async def rate_limit_and_auth_middleware(request: Request, call_next):
     path = request.url.path
+    if path.startswith("/api/"):
+        _check_rate_limit(request)
     if path in EXCLUDED_AUTH_PATHS or path.startswith("/mcp/") or path.startswith("/ws"):
         return await call_next(request)
     if not _API_KEY_ENV:
@@ -376,7 +394,7 @@ def export_csv(
 # ─── ASF ────────────────────────────────────────────────────
 
 class ASFConfigUpdate(BaseModel):
-    ipc_url: str = "http://localhost:1243"
+    ipc_url: str = "http://localhost:1242"
     ipc_password: str = ""
     default_bot: str = "principal"
     auto_redeem: bool = False

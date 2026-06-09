@@ -27,9 +27,10 @@ Bot automatizado que busca códigos gratis, giveaways y juegos temporalmente gra
 | Steam Store (temp free) | Juegos en -100% temporal | ✅ |
 | Steam Store (free weekend) | Fines de semana gratis | ✅ |
 | CheapShark API | Deals en $0 o cerca | ✅ |
-| **GOG Catalog** | Juegos gratis en GOG | ✅ |
-| **Xbox Catalog** | Juegos gratis en Xbox | ✅ |
-| Epic Games Store | Juegos gratis semanales | ✅ |
+| **GOG Catalog** | Juegos gratis en GOG | ✅ 140 items (mods/DLCs/prologues — requieren base game) |
+| **Xbox Catalog** | Juegos gratis en Xbox | ✅ 90 items (F2P permanente, no promocional) |
+| Epic Games Store | Juegos gratis semanales | ✅ Actuales reclamados. Próximos Jun 11 |
+| **Amazon Prime Gaming** | Juegos mensuales | ❌ No implementado |
 | GiveAway.su | Keys directas | ✅ |
 | Telegram | Canales de keys | ✅ |
 | Fanatical | Juegos gratis | ✅ |
@@ -222,12 +223,27 @@ Esto permite agregar juegos como Tell Me Why, Gravity Circuit, Capcom Arcade Sta
 ### Bots disponibles
 
 | Bot | Steam Account | Steam ID | Estado |
-|---|---|---|---|
-| `principal` | forgerb | 76561198051997214 | ✅ Farming |
-| `secundaria1` | forgerb2 | 76561199125215505 | ✅ Limitada |
-| `tryh4rd` | tryh4rdgame | 76561198691635889 | ✅ Limitada |
+|---|---|---|---|---|
+| `principal` | forgerb | 76561198051997214 | ✅ Farming, Wallet 94¢ |
+| `secundaria1` | forgerb2 | 76561199125215505 | ✅ Limitada (no farmea) |
+| `secundaria2` | — | — | ❌ Deshabilitado en config |
+| `tryh4rd` | tryh4rdgame | 76561198691635889 | ❌ Template en repo, no existe en Docker |
 
 ## Historial de cambios recientes
+
+### 2026-06-08 — Sesión completa: revisión de todas las tiendas + cuentas
+
+- **Epic LISA**: Se descubrió que LISA: The Definitive Edition **no era un juego gratis** sino que estaba en oferta (-45%). El `addToCart` funcionaba porque agrega cualquier oferta al carrito (incluso pagas). Falsa alarma.
+- **quickPurchase API descubierta**: Endpoint `orderprocessor-public-service-ecomprod01.ol.epicgames.com/orderprocessor/api/shared/accounts/{id}/orders/quickPurchase` para free claims. Retorna `CHECKOUT` pero no se completó el reclamo para LISA (consistente con que no era gratis).
+- **Browser non-headless**: Chromium con `--remote-debugging-port=43465` + `--disable-blink-features=AutomationControlled` funciona a través de Cloudflare en display `:0`. Firefox no disponible (Playwright no soporta Ubuntu 26.04).
+- **DB review**: 466 entradas en DB, solo ~8 redeemeadas (1.7%). 140 GOG, 90 Xbox sin reclamar.
+- **GOG**: 140 items gratis pero son mods/DLCs/prologues que requieren base game. Ninguno redeemado.
+- **Xbox**: 90 items F2P permanente (Apex, Destiny 2, CoD Warzone, etc.). No promocional.
+- **Amazon Prime Gaming**: **No hay scraper** — gap importante.
+- **ASF**: Docker con 2 bots activos (principal/secundaria1), secundaria2 deshabilitado, tryh4rd no existe en Docker.
+- **Epic actuales**: Rogue Waters + Songs of Conquest ya "In Library". Próximos Jun 11: The Ouroboros King, Warhammer 40K Speed Freeks.
+
+### Anteriores
 
 - **2026-06-07 — Epic Extras claiming**: 10/16 Epic Extras items reclamados vía GraphQL + browser (Fall Guys, Infinity Nikki, WW, NW, STO, Asphalt, WW, WoW, Idle Champions, Firestone). Discord Nitro/Duet Night/RAVEN2 no reclamables (requieren base game).
 - **2026-06-07 — GCP Budgets**: Configurados budgets de $1, $10, $100, $1000 CLP con alertas al 50%, 90%, 100%.

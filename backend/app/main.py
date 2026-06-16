@@ -24,19 +24,28 @@ from .mcp_server import create_sse_app
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Simple in-memory rate limiter
-_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+from cachetools import TTLCache
+
+# Simple TTL rate limiter to prevent memory leaks
+_rate_limit_store = TTLCache(maxsize=10000, ttl=60)
 RATE_LIMIT_REQUESTS = 30
 RATE_LIMIT_WINDOW = 60
 
 def _check_rate_limit(request: Request):
     client_ip = request.client.host if request.client else "unknown"
     now = time.time()
-    window = _rate_limit_store[client_ip]
-    window[:] = [t for t in window if now - t < RATE_LIMIT_WINDOW]
+    
+    # Get existing hits for this IP, or initialize an empty list
+    window = _rate_limit_store.get(client_ip, [])
+    
+    # Filter out old hits
+    window = [t for t in window if now - t < RATE_LIMIT_WINDOW]
+    
     if len(window) >= RATE_LIMIT_REQUESTS:
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+        
     window.append(now)
+    _rate_limit_store[client_ip] = window
 
 _API_KEY_ENV = os.environ.get("STEAM_HUNTER_API_KEY", "")
 

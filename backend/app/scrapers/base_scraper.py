@@ -75,6 +75,15 @@ class BaseScraper(ABC):
         resp = self._fetch(url, max_retries=max_retries, timeout=timeout)
         return resp.text if resp is not None else None
 
+    def _fetch_json(self, url: str, max_retries: int = 2, timeout: int = 20) -> Any | None:
+        resp = self._fetch(url, max_retries=max_retries, timeout=timeout)
+        if resp is not None:
+            try:
+                return resp.json()
+            except ValueError as e:
+                logger.warning(f"{self.__class__.__name__} JSON decode error on {url}: {e}")
+        return None
+
     @abstractmethod
     def search_freebies(self) -> list[dict[str, Any]]:
         ...

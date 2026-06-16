@@ -54,6 +54,7 @@ class MoreSourcesScraper:
         results.extend(self._epic_freebies())
         results.extend(self._cheapshark_giveaways())
         results.extend(self._fanatical_free())
+        results.extend(self._amazon_prime_gaming())
         return results
 
     def _cheapshark_free(self) -> list[dict]:
@@ -65,7 +66,12 @@ class MoreSourcesScraper:
             if not resp:
                 return []
 
-            data = resp.json()
+            try:
+                data = resp.json()
+            except ValueError as e:
+                logger.warning(f"CheapShark JSON decode error: {e}")
+                return []
+
             results = []
             now = datetime.now(timezone.utc).isoformat()
 
@@ -105,7 +111,12 @@ class MoreSourcesScraper:
             if not resp:
                 return []
 
-            data = resp.json()
+            try:
+                data = resp.json()
+            except ValueError as e:
+                logger.warning(f"CheapShark Deals JSON decode error: {e}")
+                return []
+
             results = []
             now = datetime.now(timezone.utc).isoformat()
 
@@ -151,7 +162,12 @@ class MoreSourcesScraper:
                 if not resp:
                     continue
 
-                data = resp.json()
+                try:
+                    data = resp.json()
+                except ValueError as e:
+                    logger.warning(f"{label} JSON decode error: {e}")
+                    continue
+
                 count = 0
                 for post in data.get("data", {}).get("children", []):
                     p = post.get("data", {})
@@ -191,7 +207,12 @@ class MoreSourcesScraper:
             if not resp:
                 return []
 
-            data = resp.json()
+            try:
+                data = resp.json()
+            except ValueError as e:
+                logger.warning(f"Epic JSON decode error: {e}")
+                return []
+
             catalog = data.get("data", {})
             if not catalog:
                 catalog = data
@@ -270,3 +291,48 @@ class MoreSourcesScraper:
         except Exception as e:
             logger.error(f"Fanatical error: {e}")
             return []
+
+    def _amazon_prime_gaming(self) -> list[dict]:
+        try:
+            resp = self._fetch(
+                "https://www.reddit.com/r/FreeGameFindings/search.json?q=flair%3A%22Amazon+Prime%22&restrict_sr=on&sort=new&t=month",
+                referer="https://www.reddit.com/",
+            )
+            if not resp:
+                return []
+
+            try:
+                data = resp.json()
+            except ValueError as e:
+                logger.warning(f"Amazon Prime JSON decode error: {e}")
+                return []
+
+            results = []
+            now = datetime.now(timezone.utc).isoformat()
+            
+            for post in data.get("data", {}).get("children", [])[:5]:
+                p = post.get("data", {})
+                title = p.get("title", "")
+                url = p.get("url", "")
+                permalink = "https://www.reddit.com" + p.get("permalink", "")
+                
+                # Check age, don't include very old ones, though search is limited to month
+                created_utc = p.get("created_utc", 0)
+                if datetime.now(timezone.utc).timestamp() - created_utc > 30 * 86400:
+                    continue
+
+                results.append({
+                    "source": "prime_gaming",
+                    "source_url": url if url.startswith("http") else permalink,
+                    "title": f"Prime: {title[:200]}",
+                    "description": "Amazon Prime Gaming Reward",
+                    "found_at": now,
+                })
+
+            if results:
+                logger.info(f"Prime Gaming: {len(results)} results")
+            return results
+        except Exception as e:
+            logger.error(f"Prime Gaming error: {e}")
+            return []
+

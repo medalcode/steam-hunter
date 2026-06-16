@@ -301,8 +301,9 @@ def run_scrapers_once(reddit_scraper=None):
                             logger.info(f"Key {entry.code} is demo/trial, skipping")
                             entry.status = "skipped"
                             entry.error_message = "Demo/trial"
+                            db.commit()
                             continue
-                        _redeem_key_on_bots(asf, entry, bots_to_try, db)
+                        _redeem_key_on_bots(asf, entry.id, entry.code, bots_to_try, db)
                     except Exception as e:
                         logger.error(f"ASF redeem error for {entry.code}: {e}")
 
@@ -336,15 +337,17 @@ def run_scrapers_once(reddit_scraper=None):
                             logger.info(f"App {app_id} is demo/trial, skipping")
                             entry.status = "skipped"
                             entry.error_message = "Demo/trial"
+                            db.commit()
                             continue
                         sub_id = _get_free_sub(app_id)
                         if not sub_id:
                             logger.info(f"App {app_id} not free-to-keep, skipping")
                             entry.status = "skipped"
                             entry.error_message = "Not free-to-keep on Steam"
+                            db.commit()
                             continue
                         sub_id = f"sub/{sub_id}"
-                        _add_free_game_on_bots(asf, entry, app_id, sub_id, bots_to_try, db)
+                        _add_free_game_on_bots(asf, entry.id, app_id, sub_id, bots_to_try, db)
                     except Exception as e:
                         logger.error(f"Free game add error for {entry.code}: {e}")
 
@@ -357,8 +360,9 @@ def run_scrapers_once(reddit_scraper=None):
         db.close()
 
 
-def _redeem_key_on_bots(asf, entry, bots_to_try, db):
-    codes = [c.strip() for c in entry.code.replace(",", " ").split()]
+def _redeem_key_on_bots(asf, entry_id, code, bots_to_try, db):
+    db.commit()
+    codes = [c.strip() for c in code.replace(",", " ").split()]
     redeemed_on_any = False
     already_on_any = False
     last_error = ""
@@ -367,8 +371,6 @@ def _redeem_key_on_bots(asf, entry, bots_to_try, db):
             result = asf.redeem_key(bot, key)
             if result.get("success"):
                 redeemed_on_any = True
-                entry.status = "redeemed"
-                entry.redeemed_at = datetime.now(timezone.utc)
                 logger.info(f"ASF redeemed: {key} on {bot}")
             else:
                 msg = result.get("message", "")
@@ -378,18 +380,23 @@ def _redeem_key_on_bots(asf, entry, bots_to_try, db):
                 else:
                     last_error = msg
                     logger.warning(f"ASF failed: {key} on {bot} -> {msg}")
-    db.commit()
-    if not redeemed_on_any and not already_on_any:
-        entry.status = "failed"
-        entry.error_message = last_error
-    elif not redeemed_on_any and already_on_any:
-        entry.status = "redeemed"
-        entry.redeemed_at = datetime.now(timezone.utc)
-    db.commit()
+                    
+    from .database import FoundCode
+    entry = db.query(FoundCode).filter(FoundCode.id == entry_id).first()
+    if entry:
+        if redeemed_on_any or already_on_any:
+            entry.status = "redeemed"
+            entry.redeemed_at = datetime.now(timezone.utc)
+            entry.error_message = None
+        else:
+            entry.status = "failed"
+            entry.error_message = last_error
+        db.commit()
     return redeemed_on_any or already_on_any
 
 
-def _add_free_game_on_bots(asf, entry, app_id, sub_id, bots_to_try, db):
+def _add_free_game_on_bots(asf, entry_id, app_id, sub_id, bots_to_try, db):
+    db.commit()
     added_on_any = False
     already_on_any = False
     last_msg = ""
@@ -398,8 +405,6 @@ def _add_free_game_on_bots(asf, entry, app_id, sub_id, bots_to_try, db):
         msg = (result or {}).get("Result", "")
         if "OK" in msg:
             added_on_any = True
-            entry.status = "redeemed"
-            entry.redeemed_at = datetime.now(timezone.utc)
             logger.info(f"Free game added: app/{app_id} ({sub_id}) on {bot}")
         elif "Already" in msg:
             already_on_any = True
@@ -407,16 +412,18 @@ def _add_free_game_on_bots(asf, entry, app_id, sub_id, bots_to_try, db):
         else:
             last_msg = msg
             logger.warning(f"Free game failed app/{app_id} on {bot}: {msg}")
-    if added_on_any:
-        entry.status = "redeemed"
-        entry.redeemed_at = datetime.now(timezone.utc)
-    elif already_on_any:
-        entry.status = "redeemed"
-        entry.redeemed_at = datetime.now(timezone.utc)
-    else:
-        entry.status = "failed"
-        entry.error_message = last_msg[:200]
-    db.commit()
+            
+    from .database import FoundCode
+    entry = db.query(FoundCode).filter(FoundCode.id == entry_id).first()
+    if entry:
+        if added_on_any or already_on_any:
+            entry.status = "redeemed"
+            entry.redeemed_at = datetime.now(timezone.utc)
+            entry.error_message = None
+        else:
+            entry.status = "failed"
+            entry.error_message = last_msg[:200]
+        db.commit()
     return added_on_any or already_on_any
 
 def start_scheduler():

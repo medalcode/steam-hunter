@@ -59,7 +59,12 @@ class GiveawayAPIScraper:
                 logger.warning(f"freesteamkeys.com API -> {resp.status_code}")
                 return []
 
-            data = resp.json()
+            try:
+                data = resp.json()
+            except ValueError as e:
+                logger.warning(f"freesteamkeys JSON decode error: {e}")
+                return []
+
             now = datetime.now(timezone.utc).isoformat()
             results = []
 
@@ -163,7 +168,12 @@ class GiveawayAPIScraper:
                 logger.warning(f"gamerpower.com API -> {resp.status_code}")
                 return []
 
-            data = resp.json()
+            try:
+                data = resp.json()
+            except ValueError as e:
+                logger.warning(f"GamerPower JSON decode error: {e}")
+                return []
+
             now = datetime.now(timezone.utc).isoformat()
             results = []
 

@@ -30,7 +30,7 @@ Bot automatizado que busca códigos gratis, giveaways y juegos temporalmente gra
 | **GOG Catalog** | Juegos gratis en GOG | ✅ 140 items (mods/DLCs/prologues — requieren base game) |
 | **Xbox Catalog** | Juegos gratis en Xbox | ✅ 90 items (F2P permanente, no promocional) |
 | Epic Games Store | Juegos gratis semanales | ✅ Actuales reclamados. Próximos Jun 11 |
-| **Amazon Prime Gaming** | Juegos mensuales | ❌ No implementado |
+| **Amazon Prime Gaming** | Juegos mensuales | ✅ Vía Reddit /r/FreeGameFindings |
 | GiveAway.su | Keys directas | ✅ |
 | Telegram | Canales de keys | ✅ |
 | Fanatical | Juegos gratis | ✅ |
@@ -230,6 +230,13 @@ Esto permite agregar juegos como Tell Me Why, Gravity Circuit, Capcom Arcade Sta
 | `tryh4rd` | tryh4rdgame | 76561198691635889 | ❌ Template en repo, no existe en Docker |
 
 ## Historial de cambios recientes
+
+### 2026-06-16 — Prime Gaming, Estabilidad y Fugas de Memoria
+
+- **Amazon Prime Gaming**: Se implementó un scraper en `moresources.py` que lee `r/FreeGameFindings` buscando posts con la etiqueta de "Amazon Prime", solucionando la falta de esta fuente.
+- **Concurrencia (SQLite)**: Se optimizó `scheduler.py` para separar los commits de la base de datos de las llamadas HTTP al cliente de ASF. Esto soluciona los errores de `database is locked` cuando el scraper ejecuta en paralelo.
+- **Fuga de Memoria**: Se reemplazó el limitador de requests (`_rate_limit_store`) que usaba un diccionario estático en memoria por `cachetools.TTLCache`, previniendo que se acumulen IPs de forma indefinida a lo largo del tiempo.
+- **Robustez de Scrapers**: Se añadió un manejo robusto de errores de decodificación JSON (`JSONDecodeError`) en el método base de peticiones y en `giveaway_apis.py` y `moresources.py`, previniendo que respuestas inválidas tiren el hilo del scraper.
 
 ### 2026-06-08 — Sesión completa: revisión de todas las tiendas + cuentas
 

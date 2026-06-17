@@ -180,6 +180,7 @@ def run_scrapers_once(reddit_scraper=None):
             "fanatical/free", "freesteamkeys", "giveeclub",
             "xbox/free",
             "gog/free",
+            "prime_gaming",
         }
 
         new_entries = []

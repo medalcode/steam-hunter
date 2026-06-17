@@ -1,7 +1,7 @@
 import re
 
 STEAM_KEY_PATTERN = re.compile(
-    r'\b[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}\b'
+    r'\b[A-Z0-9\?]{5}(?:-[A-Z0-9\?]{5}){2,4}\b'
 )
 
 STEAM_GIFT_URL_PATTERN = re.compile(
@@ -19,7 +19,23 @@ GIVEAWAY_URL_PATTERNS = [
 def parse_steam_keys(text: str) -> list[str]:
     if not text:
         return []
-    return STEAM_KEY_PATTERN.findall(text.upper())
+    
+    upper_text = text.upper()
+    keys = STEAM_KEY_PATTERN.findall(upper_text)
+    
+    resolved_keys = []
+    for k in keys:
+        if '?' in k:
+            # Try to find a hint like ? = X, ? is X, ?: X, ? -> X
+            match = re.search(r'\?\s*(?:=|IS|:|->)\s*([A-Z0-9])', upper_text)
+            if match:
+                k = k.replace('?', match.group(1))
+            else:
+                # If we cannot resolve the mask, we discard it to avoid 10-fail ban from ASF
+                continue
+        resolved_keys.append(k)
+        
+    return list(set(resolved_keys))
 
 def parse_gift_links(text: str) -> list[str]:
     if not text:

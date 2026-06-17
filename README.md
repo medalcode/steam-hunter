@@ -80,6 +80,22 @@ docker compose up -d --build
 6. (Opcional) **Config > Notifications** — Discord webhook o Telegram
 7. (Opcional) **Config > ASF** — conectar ArchiSteamFarm para auto-canjear keys
 
+### ¡Importante! ArchiSteamFarm (ASF) es exclusivo para Steam
+
+La integración actual asume que usas ASF para canjear en automático. ASF **no** puede canjear juegos de Epic, GOG o Amazon Prime. `steam-hunter` los rastreará y te notificará en el dashboard, pero no los canjeará.
+
+Para automatizar la reclamación en **Epic Games, GOG y Prime Gaming**, se recomienda usar [FreeGamesClaimer](https://github.com/vogler/free-games-claimer) junto a tu setup. Hemos incluido un archivo de ejemplo `fgc-docker-compose.yml` en la raíz de este proyecto.
+
+Para levantar todo el ecosistema (Steam Hunter + ASF + FGC), simplemente corre el ejecutable incluido:
+```bash
+./start.sh
+```
+Ingresa al puerto `:6080` de tu servidor en el navegador para hacer el login inicial (resolver captchas), y FGC se encargará de reclamar todos los juegos diarios y semanales en esas 3 plataformas por ti.
+
+---
+
+## 🏗️ Arquitectura y Flujo de Datos
+
 ## Autenticación API
 
 Opcional. Setear `STEAM_HUNTER_API_KEY` en el entorno para requerir Bearer token en todas las rutas excepto `/api/health`, `/mcp/*`, `/docs`, `/openapi.json`, `/ws`.
@@ -146,14 +162,14 @@ Los scrapers se ejecutan **en paralelo** (ThreadPoolExecutor, max 6 workers) cad
 
 - **giveaway_apis**: FreeSteamKeys API, GamerPower API, Givee.Club — resuelve URLs de Steam desde páginas de eventos
 - **keysites**: GamerPower, GiveAway.su + Reddit fallback
-- **moresources**: CheapShark API, Reddit, Epic Games API, Fanatical
+- **moresources**: CheapShark API, Reddit, Epic Games API, Fanatical, Prime Gaming
 - **gog**: GOG Catalog — free games en GOG.com
 - **xbox_catalog**: Xbox Catalog — free games en Xbox
 - **steam_store**: Temp free games (-100%), free weekends, F2P
 - **steamgifts**: SteamGifts (requiere cookies)
 - **twitter**: Nitter instances, cuentas de giveaways
 - **telegram**: Canales públicos de keys
-- **reddit**: Reddit API con OAuth (bloqueado desde GCP)
+- **reddit**: Reddit API con OAuth leyendo posts y comentarios ninja en 12 subreddits (pcmasterrace, gaming, FreeGameFindings, FREE, etc.)
 - **BaseScraper**: Clase abstracta compartida con `_fetch()`, `_headers()`, y `make_result()`
 
 ---
@@ -162,6 +178,12 @@ Los scrapers se ejecutan **en paralelo** (ThreadPoolExecutor, max 6 workers) cad
 
 ### Docker Compose (recomendado)
 
+Puedes levantar todo usando el script automatizado (incluye FGC):
+```bash
+./start.sh
+```
+
+O si solo quieres levantar Steam Hunter + ASF:
 ```bash
 docker compose up -d --build
 ```

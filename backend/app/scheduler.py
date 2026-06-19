@@ -241,18 +241,17 @@ def run_scrapers_once(reddit_scraper=None):
                 db.add(entry)
                 new_entries.append(entry)
 
+        if new_entries:
             db.commit()
-
-            if new_entries:
-                try:
-                    batch_msg = f"**{len(new_entries)} nuevos códigos encontrados:**\n"
-                    for entry in new_entries[:10]:
-                        batch_msg += f"• [{entry.source}] {entry.title or entry.code[:40]}\n"
-                    if len(new_entries) > 10:
-                        batch_msg += f"... y {len(new_entries) - 10} más"
-                    notifier.send("Nuevos códigos encontrados", batch_msg)
-                except Exception as e:
-                    logger.error(f"Batch notification failed: {e}")
+            try:
+                batch_msg = f"**{len(new_entries)} nuevos códigos encontrados:**\n"
+                for entry in new_entries[:10]:
+                    batch_msg += f"• [{entry.source}] {entry.title or entry.code[:40]}\n"
+                if len(new_entries) > 10:
+                    batch_msg += f"... y {len(new_entries) - 10} más"
+                notifier.send("Nuevos códigos encontrados", batch_msg)
+            except Exception as e:
+                logger.error(f"Batch notification failed: {e}")
 
         if _websocket_manager and new_entries:
             try:

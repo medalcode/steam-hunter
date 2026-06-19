@@ -66,20 +66,27 @@ def _check_api_key(request: Request, db: Session = Depends(get_db)):
 class ConnectionManager:
     def __init__(self):
         self.active: list[WebSocket] = []
+        self.loop = None
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
         self.active.append(ws)
+        if self.loop is None:
+            import asyncio
+            self.loop = asyncio.get_running_loop()
 
     def disconnect(self, ws: WebSocket):
         if ws in self.active:
             self.active.remove(ws)
 
     def broadcast(self, data: dict):
+        import asyncio
         for ws in self.active.copy():
             try:
-                import asyncio
-                asyncio.create_task(ws.send_json(data))
+                if self.loop and self.loop.is_running():
+                    asyncio.run_coroutine_threadsafe(ws.send_json(data), self.loop)
+                else:
+                    asyncio.create_task(ws.send_json(data))
             except Exception:
                 self.disconnect(ws)
 
@@ -138,18 +145,25 @@ async def rate_limit_and_auth_middleware(request: Request, call_next):
     if not _API_KEY_ENV:
         return await call_next(request)
     from starlette.responses import JSONResponse
+    from fastapi.concurrency import run_in_threadpool
+    
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         token = auth[7:]
         if token == _API_KEY_ENV:
             return await call_next(request)
-        db = next(get_db())
-        try:
-            key_entry = db.query(APIKey).filter(APIKey.key == token, APIKey.is_active == True).first()
-            if key_entry:
-                return await call_next(request)
-        finally:
-            db.close()
+        
+        def _check_db():
+            db = next(get_db())
+            try:
+                return db.query(APIKey).filter(APIKey.key == token, APIKey.is_active == True).first() is not None
+            finally:
+                db.close()
+                
+        is_valid = await run_in_threadpool(_check_db)
+        if is_valid:
+            return await call_next(request)
+            
     return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
 
 class RedeemRequest(BaseModel):

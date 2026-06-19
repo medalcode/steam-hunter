@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000"
+const API_BASE = ""
 
 export async function fetchCodes(params?: {
   status?: string
@@ -120,7 +120,8 @@ export async function updateNotificationConfig(config: {
 }
 
 export function getWsUrl() {
-  return API_BASE.replace(/^http/, "ws") + "/ws"
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+  return `${protocol}//${window.location.host}/ws`
 }
 
 export function getExportUrl(format: "json" | "csv", status?: string, code_type?: string) {

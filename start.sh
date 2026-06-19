@@ -11,5 +11,5 @@ docker compose -f fgc-docker-compose.yml up -d
 
 echo ""
 echo "¡Todo listo! Los servicios están corriendo en segundo plano."
-echo "- Frontend de Steam Hunter: http://localhost:5173"
+echo "- Frontend de Steam Hunter: http://localhost/"
 echo "- FreeGamesClaimer (VNC para login): http://localhost:6080"

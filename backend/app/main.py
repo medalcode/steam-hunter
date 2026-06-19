@@ -28,11 +28,11 @@ from cachetools import TTLCache
 
 # Simple TTL rate limiter to prevent memory leaks
 _rate_limit_store = TTLCache(maxsize=10000, ttl=60)
-RATE_LIMIT_REQUESTS = 30
+RATE_LIMIT_REQUESTS = 3000
 RATE_LIMIT_WINDOW = 60
 
 def _check_rate_limit(request: Request):
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = request.headers.get("X-Real-IP", request.client.host if request.client else "unknown")
     now = time.time()
     
     # Get existing hits for this IP, or initialize an empty list
@@ -42,10 +42,12 @@ def _check_rate_limit(request: Request):
     window = [t for t in window if now - t < RATE_LIMIT_WINDOW]
     
     if len(window) >= RATE_LIMIT_REQUESTS:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+        from starlette.responses import JSONResponse
+        return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Try again later."})
         
     window.append(now)
     _rate_limit_store[client_ip] = window
+    return None
 
 _API_KEY_ENV = os.environ.get("STEAM_HUNTER_API_KEY", "")
 
@@ -127,7 +129,7 @@ def health_check(db: Session = Depends(get_db)):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_origins=["http://localhost:5173", "http://localhost:8000", "http://127.0.0.1:8000", "http://localhost", "http://127.0.0.1"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -139,7 +141,9 @@ EXCLUDED_AUTH_PATHS = {"/api/health", "/mcp/sse", "/mcp/messages/", "/docs", "/o
 async def rate_limit_and_auth_middleware(request: Request, call_next):
     path = request.url.path
     if path.startswith("/api/"):
-        _check_rate_limit(request)
+        rate_limit_resp = _check_rate_limit(request)
+        if rate_limit_resp:
+            return rate_limit_resp
     if path in EXCLUDED_AUTH_PATHS or path.startswith("/mcp/") or path.startswith("/ws"):
         return await call_next(request)
     if not _API_KEY_ENV:

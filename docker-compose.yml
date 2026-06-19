@@ -32,8 +32,7 @@ services:
       - ASF_AUTO_REDEEM=true
       - STEAM_HUNTER_API_KEY=${STEAM_HUNTER_API_KEY:-}
     depends_on:
-      asf:
-        condition: service_healthy
+      - asf
     restart: unless-stopped
 
   frontend:

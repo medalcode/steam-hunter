@@ -253,6 +253,14 @@ Esto permite agregar juegos como Tell Me Why, Gravity Circuit, Capcom Arcade Sta
 
 ## Historial de cambios recientes
 
+### 2026-06-19 — Rediseño Premium Frontend, Nginx Proxy y Estabilidad
+
+- **Rediseño Premium**: Se reconstruyó completamente la interfaz web (`index.html` y `App.css`) utilizando una estética moderna de "Dark Glassmorphism", tipografía premium (Outfit/Inter) y micro-animaciones interactivas.
+- **Nginx Proxy & CORS**: Se configuró Nginx en producción para hacer proxy pasivo de `/api/` y `/ws` hacia el backend. Se refactorizó el cliente React para usar rutas relativas, eliminando por completo los bloqueos CORS (Cross-Origin Resource Sharing).
+- **Rate Limit**: Se aumentó el límite de seguridad de FastAPI de 30 a 3,000 requests por minuto, previniendo bloqueos accidentales al refrescar masivamente el frontend.
+- **Boot-loop de Docker**: Se eliminó la dependencia bloqueante del `healthcheck` de ASF en `docker-compose.yml`, permitiendo un inicio asíncrono y evitando que el backend reinicie constantemente si ASF demora en conectarse a Steam.
+- **Manejo de WebSockets**: Se implementó `run_coroutine_threadsafe` en el backend para poder transmitir notificaciones de WebSocket desde hilos síncronos de manera segura, evitando excepciones asíncronas bloqueantes.
+
 ### 2026-06-16 — Prime Gaming, Estabilidad y Fugas de Memoria
 
 - **Amazon Prime Gaming**: Se implementó un scraper en `moresources.py` que lee `r/FreeGameFindings` buscando posts con la etiqueta de "Amazon Prime", solucionando la falta de esta fuente.

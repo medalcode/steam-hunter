@@ -4,15 +4,29 @@ on:
     branches: [main]
 
 jobs:
-  deploy:
+  test-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Test Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Test Backend
+        run: |
+          cd backend
+          pip install -r requirements.txt --user
+          pip install pytest --user
+          python -m pytest || python -m compileall .
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: 136.109.212.18
-          username: medalcode
+          host: ${{ secrets.GCP_VM_HOST }}
+          username: ${{ secrets.GCP_VM_USERNAME }}
           key: ${{ secrets.GCP_VM_SSH_KEY }}
           script: |
             set -e
@@ -20,8 +34,8 @@ jobs:
             git pull origin main
             cd backend
             source venv/bin/activate
-            pip install -r requirements.txt --break-system-packages
+            pip install -r requirements.txt --user
             systemctl --user restart steam-hunter.service
             cd ~/steam-hunter/frontend
-            npm install && npm run build
+            npm ci && npm run build
             echo "Deploy completo"

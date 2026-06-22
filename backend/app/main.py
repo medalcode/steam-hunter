@@ -135,7 +135,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-EXCLUDED_AUTH_PATHS = {"/api/health", "/mcp/sse", "/mcp/messages/", "/docs", "/openapi.json", "/ws"}
+EXCLUDED_AUTH_PATHS = {"/api/health", "/docs", "/openapi.json"}
 
 @app.middleware("http")
 async def rate_limit_and_auth_middleware(request: Request, call_next):
@@ -144,7 +144,7 @@ async def rate_limit_and_auth_middleware(request: Request, call_next):
         rate_limit_resp = _check_rate_limit(request)
         if rate_limit_resp:
             return rate_limit_resp
-    if path in EXCLUDED_AUTH_PATHS or path.startswith("/mcp/") or path.startswith("/ws"):
+    if path in EXCLUDED_AUTH_PATHS:
         return await call_next(request)
     if not _API_KEY_ENV:
         return await call_next(request)
@@ -215,7 +215,17 @@ def code_to_dict(c: FoundCode) -> dict:
 # ─── WebSocket ───────────────────────────────────────────────
 
 @app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
+async def websocket_endpoint(ws: WebSocket, token: str | None = None):
+    if _API_KEY_ENV:
+        query_token = ws.query_params.get("token")
+        auth_header = ws.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            auth_token = auth_header[7:]
+        else:
+            auth_token = query_token or ""
+        if auth_token != _API_KEY_ENV:
+            await ws.close(code=4001, reason="Unauthorized")
+            return
     await manager.connect(ws)
     try:
         while True:

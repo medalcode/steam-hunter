@@ -1,8 +1,6 @@
-version: "3.8"
-
 services:
   free-games-claimer:
-    image: ghcr.io/vogler/free-games-claimer
+    image: ghcr.io/vogler/free-games-claimer:latest
     container_name: free-games-claimer
     volumes:
       - ./fgc-data:/fgc/data
@@ -15,6 +13,6 @@ services:
       - SHOW_BROWSER=0 # Desactiva el visor VNC
     ports:
       # Puerto para VNC en caso de querer ver el navegador headless para resolver captchas iniciales
-      - "5900:5900"
-      - "6080:6080"
+      - "127.0.0.1:5900:5900"
+      - "127.0.0.1:6080:6080"
     restart: unless-stopped

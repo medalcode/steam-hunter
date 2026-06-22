@@ -9,6 +9,10 @@ import {
   asfRedeemCode,
 } from "../api/client"
 
+function isSafeUrl(url: string): boolean {
+  return url.startsWith("http://") || url.startsWith("https://")
+}
+
 interface Props {
   status?: string
   codeType?: string
@@ -91,7 +95,37 @@ export function CodeTable({ status, codeType }: Props) {
   }
 
   if (loading && codes.length === 0) {
-    return <div className="loading">Loading...</div>
+    return (
+      <div>
+        <div className="table-wrapper">
+          <table className="code-table">
+            <thead>
+              <tr>
+                <th>Code / Link</th>
+                <th>Type</th>
+                <th>Source</th>
+                <th>Title</th>
+                <th>Status</th>
+                <th>Validation</th>
+                <th>Found</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <tr key={i}>
+                  {Array.from({ length: 8 }).map((_, j) => (
+                    <td key={j}>
+                      <div className="skeleton" style={{ width: [120, 60, 80, 100, 60, 80, 90, 80][j] }} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -129,9 +163,13 @@ export function CodeTable({ status, codeType }: Props) {
                   {code.code_type === "key" ? (
                     <code>{code.code}</code>
                   ) : (
-                    <a href={code.code} target="_blank" rel="noopener noreferrer">
-                      {code.code.length > 60 ? code.code.slice(0, 60) + "..." : code.code}
-                    </a>
+                    isSafeUrl(code.code) ? (
+                      <a href={code.code} target="_blank" rel="noopener noreferrer">
+                        {code.code.length > 60 ? code.code.slice(0, 60) + "..." : code.code}
+                      </a>
+                    ) : (
+                      <code>{code.code.length > 60 ? code.code.slice(0, 60) + "..." : code.code}</code>
+                    )
                   )}
                 </td>
                 <td>
@@ -140,9 +178,13 @@ export function CodeTable({ status, codeType }: Props) {
                 <td className="source-cell">{code.source}</td>
                 <td className="title-cell">
                   {code.title && (
-                    <a href={code.source_url || "#"} target="_blank" rel="noopener noreferrer">
-                      {code.title.length > 50 ? code.title.slice(0, 50) + "..." : code.title}
-                    </a>
+                    isSafeUrl(code.source_url) ? (
+                      <a href={code.source_url} target="_blank" rel="noopener noreferrer">
+                        {code.title.length > 50 ? code.title.slice(0, 50) + "..." : code.title}
+                      </a>
+                    ) : (
+                      <span>{code.title.length > 50 ? code.title.slice(0, 50) + "..." : code.title}</span>
+                    )
                   )}
                 </td>
                 <td>

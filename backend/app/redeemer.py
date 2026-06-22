@@ -42,7 +42,15 @@ def redeem_key(session_cookies: dict, key: str) -> dict:
         logger.error(f"JSON parse error redeeming key {key}: {e}")
         return {"success": False, "message": f"Parse error: {e}"}
 
+ALLOWED_GIFT_DOMAINS = ("https://store.steampowered.com/", "https://steamcommunity.com/")
+
+def _is_safe_steam_url(url: str) -> bool:
+    return any(url.lower().startswith(prefix) for prefix in ALLOWED_GIFT_DOMAINS)
+
 def accept_gift(session_cookies: dict, gift_link: str) -> dict:
+    if not _is_safe_steam_url(gift_link):
+        return {"success": False, "message": "Invalid gift link URL (not a Steam domain)"}
+
     session = requests.Session()
     for name, value in (session_cookies or {}).items():
         session.cookies.set(name, value)

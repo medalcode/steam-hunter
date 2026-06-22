@@ -5,17 +5,23 @@ Bot automatizado que busca códigos gratis, giveaways y juegos temporalmente gra
 ## Stack
 
 - **Backend**: Python + FastAPI + SQLite + APScheduler + **MCP Server (SSE)**
-- **Frontend**: React + Vite + TypeScript
+- **Frontend**: React + Vite + TypeScript (React.lazy code splitting)
 - **Despliegue**: Docker Compose + CI/CD a GCP
-- **ASF**: ArchiSteamFarm v6.3.6.1 (Docker, network=host)
+- **ASF**: ArchiSteamFarm v6.3.6.1 (Docker, red aislada steam_hunter_net)
 
 ## Seguridad
 
 - **CORS**: Restringido a `localhost:5173`, `localhost:8000`, `127.0.0.1:8000`
-- **Rate limiting**: 30 requests/60s por IP en endpoints `/api/*`
-- **ASF IPC**: Usa header `X-API-Key` para autenticación (puerto 1242)
-- **API Key opcional**: Setear `STEAM_HUNTER_API_KEY` para requerir Bearer token
-- **.dockerignore**: Excluye `venv/`, `__pycache__/`, `*.db`, `xbox_cookies.json`
+- **Rate limiting**: 3000 requests/60s por IP en endpoints `/api/*` (TTLCache, sin memory leak)
+- **nginx rate limiting**: 30r/s con burst 50 en frontend
+- **SSL/TLS recomendado**: nginx config preparado para certbot/Let's Encrypt
+- **Security headers**: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`
+- **API Key requerible**: Setear `STEAM_HUNTER_API_KEY` para requerir Bearer token en TODAS las rutas, incluyendo MCP Server, WebSocket, y API
+- **WebSocket autenticado**: Token vía query param `?token=` o header `Authorization`
+- **MCP Server asegurado**: Ya no está excluido de autenticación — requiere API key
+- **XSS prevenido**: Validación de protocolo (`http://`/`https://`) en todos los hrefs del frontend
+- **SSRF prevenido**: Validación de URLs en `redeemer.py` contra dominios conocidos de Steam
+- **Secretos**: `fgc-data/browser/` excluido de git (contenía cookies de sesión)
 
 ## Fuentes (25+)
 
@@ -96,15 +102,27 @@ Ingresa al puerto `:6080` de tu servidor en el navegador para hacer el login ini
 
 ## 🏗️ Arquitectura y Flujo de Datos
 
+```
+[25+ Sources] ──> [12 Scrapers en paralelo (6 workers)] ──> [Parser + Validator] ──> [SQLite DB]
+                                              │                        │
+                            ┌─────────────────┘                        └─────────────────┐
+                            ▼                                                          ▼
+                    [Auto-Redeem via ASF IPC]                                  [WebSocket Broadcast]
+                    (sesión DB propia por operación)                                  + Notifications
+                                                                                  (Discord / Telegram)
+    [MCP Server (SSE)] ──> [7 tools para asistentes AI]
+    (requiere API key)
+```
+
 ## Autenticación API
 
-Opcional. Setear `STEAM_HUNTER_API_KEY` en el entorno para requerir Bearer token en todas las rutas excepto `/api/health`, `/mcp/*`, `/docs`, `/openapi.json`, `/ws`.
+Requerible via `STEAM_HUNTER_API_KEY`. Protege todas las rutas: API REST, WebSocket, MCP Server, SSE, y docs.
 
 ## Integración ASF (ArchiSteamFarm)
 
-En Docker, ASF corre como servicio adjunto (`network_mode: host`, puerto `1242`). Backend se conecta a `http://127.0.0.1:1242` sin password.
+En Docker, ASF corre como servicio independiente en la red `steam_hunter_net` (puerto `1242`). Backend se conecta a `http://asf:1242` con healthcheck.
 
-Para configurar bots manualmente, editar los JSONs en `./asf-config/`.
+Para configurar bots manualmente, editar los JSONs en `./asf-config/config/`.
 
 ### Endpoints ASF
 
@@ -113,6 +131,7 @@ Para configurar bots manualmente, editar los JSONs en `./asf-config/`.
 | `GET /api/asf/bots` | Listar bots de ASF |
 | `POST /api/asf/redeem` | Canjear key via ASF |
 | `POST /api/asf/redeem-all` | Canjear todas las keys pendientes |
+| `POST /api/asf/retry-failed` | Reintentar canjes fallidos |
 
 ## API
 
@@ -149,16 +168,16 @@ El backend expone un **servidor MCP via SSE** montado en `/mcp`. Compatible con 
 | `validate_key` | Valida formato de key Steam |
 | `configure_asf` | Actualiza configuración de conexión ASF |
 
-### Conexión
+### Conexión (requiere API key si configurada)
 
 ```
-SSE endpoint: /mcp/sse
-Messages POST: /mcp/messages/
+SSE endpoint: /mcp/sse (Authorization: Bearer <API_KEY>)
+Messages POST: /mcp/messages/ (Authorization: Bearer <API_KEY>)
 ```
 
 ## Scrapers
 
-Los scrapers se ejecutan **en paralelo** (ThreadPoolExecutor, max 6 workers) cada 15 minutos vía APScheduler. Cada scraper tiene cooldown de 2 horas tras 3 fallos consecutivos.
+Los scrapers se ejecutan **en paralelo** (ThreadPoolExecutor, max 6 workers) cada 15 minutos vía APScheduler. Cada scraper tiene cooldown de 2 horas tras 3 fallos consecutivos (thread-safe con `threading.Lock`).
 
 - **giveaway_apis**: FreeSteamKeys API, GamerPower API, Givee.Club — resuelve URLs de Steam desde páginas de eventos
 - **keysites**: GamerPower, GiveAway.su + Reddit fallback
@@ -169,8 +188,8 @@ Los scrapers se ejecutan **en paralelo** (ThreadPoolExecutor, max 6 workers) cad
 - **steamgifts**: SteamGifts (requiere cookies)
 - **twitter**: Nitter instances, cuentas de giveaways
 - **telegram**: Canales públicos de keys
-- **reddit**: Reddit API con OAuth leyendo posts y comentarios ninja en 12 subreddits (pcmasterrace, gaming, FreeGameFindings, FREE, etc.)
-- **BaseScraper**: Clase abstracta compartida con `_fetch()`, `_headers()`, y `make_result()`
+- **reddit**: Reddit API con OAuth leyendo posts y comentarios ninja en 12 subreddits
+- **BaseScraper**: Clase abstracta — USER_AGENTS y BASE_HEADERS centralizados en `constants.py`
 
 ---
 
@@ -188,27 +207,28 @@ O si solo quieres levantar Steam Hunter + ASF:
 docker compose up -d --build
 ```
 
-Esto levanta ASF + Backend + Frontend. ASF usa `network_mode: host`.
+Esto levanta ASF + Backend + Frontend en una red aislada `steam_hunter_net`:
+- **ASF**: `http://asf:1242` con healthcheck
+- **Backend**: `http://backend:8000` con healthcheck
+- **Frontend**: `http://localhost:80` (vía nginx, con rate limiting 30r/s)
 
 ### GCP VM
 
-El repo se auto-despliega a GCP vía GitHub Actions al hacer push a `main` (IP configurada como `GCP_VM_HOST` en secrets del repo):
-
-1. SSH a la VM como `medalcode`
-2. `git pull origin main`
-3. `pip install -r requirements.txt` y restart del servicio
-4. `npm install && npm run build` en frontend
+El repo se auto-despliega a GCP vía GitHub Actions al hacer push a `main`:
+1. CI ejecuta `npm ci && npm run build` y `pytest` como test stage
+2. SSH deploy via `appleboy/ssh-action` usando secrets: `GCP_VM_HOST`, `GCP_VM_USERNAME`, `GCP_VM_SSH_KEY`
 
 ### Variables de entorno
 
 | Variable | Default | Descripción |
 |---|---|---|
-| `STEAM_HUNTER_API_KEY` | `""` | API Key para autenticación Bearer |
-| `ASF_IPC_URL` | `http://127.0.0.1:1242` | URL del IPC de ASF |
-| `ASF_IPC_PASSWORD` | `""` | Password del IPC (vacío = sin auth) |
+| `STEAM_HUNTER_API_KEY` | `""` | API Key para autenticación Bearer (protege API + WS + MCP) |
+| `ASF_IPC_URL` | `http://asf:1242` | URL del IPC de ASF |
+| `ASF_IPC_PASSWORD` | `""` | Password del IPC |
 | `ASF_DEFAULT_BOT` | `principal` | Bot por defecto para canjes |
 | `ASF_AUTO_REDEEM` | `true` | Auto-canjear al detectar keys |
 | `XBOX_CATALOG_PAGES` | `15` | Páginas a escanear en catálogo Xbox |
+| `LOG_LEVEL` | `INFO` | Nivel de logging |
 
 ## Migraciones (Alembic)
 
@@ -252,6 +272,41 @@ Esto permite agregar juegos como Tell Me Why, Gravity Circuit, Capcom Arcade Sta
 | `tryh4rd` | tryh4rdgame | 76561198691635889 | ❌ Template en repo, no existe en Docker |
 
 ## Historial de cambios recientes
+
+### 2026-06-21 — Auditoría Completa de Seguridad, Calidad e Infraestructura
+
+- **Seguridad CRÍTICA**:
+  - MCP Server ahora requiere API key para todas las tools (SSE + messages)
+  - WebSocket autenticado vía `?token=` query param o header `Authorization`
+  - XSS prevenido: validación de protocolos `http://`/`https://` en todos los hrefs
+  - SSRF prevenido: validación de URLs en redeemer contra dominios conocidos de Steam
+  - `fgc-data/browser/` excluido de git (contenía cookies de sesión de Epic/GOG/Amazon)
+- **Race conditions corregidas**:
+  - `threading.Lock` en `_scraper_cooldowns` (thread-safe)
+  - Sesiones DB separadas para redeem (cada operación usa su propia sesión, sin compartir con el scheduler)
+- **ASF configs**:
+  - Creados templates: `ASF.json`, `IPC.config`, `principal.json`, `secundaria1.json`
+  - ASF ahora corre en red Docker `steam_hunter_net` con healthcheck (ya no `network_mode: host`)
+- **Calidad de código**:
+  - USER_AGENTS y BASE_HEADERS centralizados en `backend/app/constants.py` (8 scrapers actualizados)
+  - Inconsistencia parser/validator corregida: ambos usan exactamente 3 grupos
+  - `pyproject.toml` con ruff, pytest, mypy config
+  - TS strict mode: `strict: true` en ambos tsconfigs
+  - Pre-commit hooks: `.pre-commit-config.yaml` con ruff
+- **Frontend**:
+  - Code splitting: ConfigModal con `React.lazy` + `Suspense`
+  - Skeleton loaders en tabla de códigos
+  - API client: timeout 30s, verificación `res.ok`, header `Authorization` automático
+  - Toast race condition corregida (IDs incrementales)
+  - Filter remount eliminado (CodeTable ya no se desmonta al cambiar filtros)
+  - `index.css` simplificado: eliminados estilos conflictivos con `App.css`
+- **Infraestructura**:
+  - nginx: security headers, rate limiting (30r/s), WebSocket timeout extendido
+  - Imágenes Docker con tags fijos (ASF `v6.3.6.1`, no más `latest`)
+  - Puertos restringidos a `127.0.0.1` (frontend y VNC)
+  - CI/CD: IP/username movidos a secrets, test stage añadido
+  - `start.sh`: `set -e`, Docker check, verificación post-deploy
+  - Dockerfile: `COPY --chown=app:app . .` single layer
 
 ### 2026-06-19 — Rediseño Premium Frontend, Nginx Proxy y Estabilidad
 

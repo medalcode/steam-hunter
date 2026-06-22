@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "steam_login": "your_steam_username",
+  "steam_password": "your_steam_password",
+  "steam_parental_pin": "",
+  "distributing": true,
+  "games_played_during_sleep": [],
+  "games_played_during_idle": [],
+  "lootable_steam_groups": [],
+  "online_status": 0,
+  "redeeming_preference": 1,
+  "send_on_farming": false,
+  "send_level_one_gifts_only": true,
+  "steam_trading_ cooldown": 1,
+  "steam_user_ cooldown": 1,
+  "auto_redeem": true
+}

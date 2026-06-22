@@ -5,7 +5,10 @@ services:
     restart: unless-stopped
     stdin_open: true
     tty: true
-    network_mode: host
+    ports:
+      - "127.0.0.1:1242:1242"
+    networks:
+      - steam_hunter_net
     volumes:
       - ./asf-config:/app/config
       - ./asf-logs:/app/logs
@@ -22,26 +25,34 @@ services:
     build: ./backend
     ports:
       - "127.0.0.1:8000:8000"
+    networks:
+      - steam_hunter_net
     volumes:
       - steam_hunter_data:/app/data
     environment:
       - LOG_LEVEL=INFO
-      - ASF_IPC_URL=http://127.0.0.1:1242
+      - ASF_IPC_URL=http://asf:1242
       - ASF_IPC_PASSWORD=
       - ASF_DEFAULT_BOT=principal
       - ASF_AUTO_REDEEM=true
       - STEAM_HUNTER_API_KEY=${STEAM_HUNTER_API_KEY:-}
     depends_on:
-      - asf
+      asf:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
     build: ./frontend
     ports:
       - "127.0.0.1:80:80"
+    networks:
+      - steam_hunter_net
     depends_on:
       - backend
     restart: unless-stopped
+
+networks:
+  steam_hunter_net:
 
 volumes:
   steam_hunter_data:

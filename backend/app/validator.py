@@ -75,4 +75,12 @@ def validate_giveaway_url(url: str) -> dict:
     for domain in known_domains:
         if domain in url.lower():
             return {"valid": True, "reason": f"Known giveaway platform: {domain}"}
-    return {"valid": True, "reason": "Unknown platform (proceed with caution)"}
+
+    try:
+        resp = requests.head(url, timeout=5)
+        if resp.status_code >= 400:
+            return {"valid": False, "reason": f"URL is not reachable (HTTP {resp.status_code})"}
+    except requests.RequestException:
+        return {"valid": False, "reason": "URL is not reachable (connection failed)"}
+
+    return {"valid": False, "reason": "Unknown giveaway platform (proceed with caution)"}

@@ -1,18 +1,24 @@
-import { useEffect, useState, useRef, useCallback } from "react"
+import { useEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from "react"
 import type { Stats } from "../types"
 import { fetchStats, getWsUrl, getExportUrl, asfRedeemAll, fetchASFBots } from "../api/client"
 import { CodeTable } from "./CodeTable"
-import { ConfigModal } from "./ConfigModal"
+
+const ConfigModal = lazy(() => import("./ConfigModal").then(m => ({ default: m.ConfigModal })))
 
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [filter, setFilter] = useState({ status: "new", code_type: "" })
   const [showConfig, setShowConfig] = useState(false)
-  const [refreshKey, setRefreshKey] = useState(0)
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ id: number; message: string } | null>(null)
   const [asfBots, setAsfBots] = useState<string[]>([])
   const [redeemingAll, setRedeemingAll] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
+  const toastIdRef = useRef(0)
+
+  const showToast = useCallback((msg: string) => {
+    const id = ++toastIdRef.current
+    setToast({ id, message: msg })
+  }, [])
 
   const loadStats = useCallback(async () => {
     try {
@@ -31,10 +37,6 @@ export function Dashboard() {
   }, [loadStats])
 
   useEffect(() => {
-    setRefreshKey((k) => k + 1)
-  }, [filter])
-
-  useEffect(() => {
     let reconnectTimer: ReturnType<typeof setTimeout>
     let closed = false
 
@@ -46,9 +48,8 @@ export function Dashboard() {
         try {
           const msg = JSON.parse(event.data)
           if (msg.type === "new_codes") {
-            setToast(`\u2728 ${msg.count} new codes found!`)
+            showToast(`\u2728 ${msg.count} new codes found!`)
             loadStats()
-            setRefreshKey((k) => k + 1)
           }
         } catch {
           /* ignore */
@@ -75,11 +76,14 @@ export function Dashboard() {
         wsRef.current.close()
       }
     }
-  }, [loadStats])
+  }, [loadStats, showToast])
 
   useEffect(() => {
     if (toast) {
-      const t = setTimeout(() => setToast(null), 5000)
+      const id = toast.id
+      const t = setTimeout(() => {
+        setToast(prev => prev?.id === id ? null : prev)
+      }, 5000)
       return () => clearTimeout(t)
     }
   }, [toast])
@@ -88,14 +92,22 @@ export function Dashboard() {
     setRedeemingAll(true)
     try {
       const result = await asfRedeemAll()
-      setToast(`\u2728 Redeemed ${result.results?.filter((r: { success: boolean }) => r.success).length || 0} keys`)
+      showToast(`\u2728 Redeemed ${result.results?.filter((r: { success: boolean }) => r.success).length || 0} keys`)
       loadStats()
-      setRefreshKey((k) => k + 1)
     } catch {
-      setToast("\u274c Bulk redeem failed")
+      showToast("\u274c Bulk redeem failed")
     }
     setRedeemingAll(false)
   }
+
+  const exportUrlJson = useMemo(
+    () => getExportUrl("json", filter.status || undefined, filter.code_type || undefined),
+    [filter.status, filter.code_type]
+  )
+  const exportUrlCsv = useMemo(
+    () => getExportUrl("csv", filter.status || undefined, filter.code_type || undefined),
+    [filter.status, filter.code_type]
+  )
 
   return (
     <div className="dashboard">
@@ -115,8 +127,8 @@ export function Dashboard() {
           <div className="dropdown">
             <button className="btn">Export</button>
             <div className="dropdown-content">
-              <a href={getExportUrl("json", filter.status || undefined, filter.code_type || undefined)} download>Export JSON</a>
-              <a href={getExportUrl("csv", filter.status || undefined, filter.code_type || undefined)} download>Export CSV</a>
+              <a href={exportUrlJson} download>Export JSON</a>
+              <a href={exportUrlCsv} download>Export CSV</a>
             </div>
           </div>
           <button className="btn" onClick={() => setShowConfig(true)}>
@@ -125,7 +137,7 @@ export function Dashboard() {
         </div>
       </header>
 
-      {toast && <div className="toast" onClick={() => setToast(null)}>{toast}</div>}
+      {toast && <div className="toast" onClick={() => setToast(null)}>{toast.message}</div>}
 
       {stats && (
         <section className="stats">
@@ -181,12 +193,15 @@ export function Dashboard() {
       </section>
 
       <CodeTable
-        key={refreshKey}
         status={filter.status || undefined}
         codeType={filter.code_type || undefined}
       />
 
-      {showConfig && <ConfigModal onClose={() => setShowConfig(false)} />}
+      {showConfig && (
+        <Suspense fallback={<div>Loading configuration...</div>}>
+          <ConfigModal onClose={() => setShowConfig(false)} />
+        </Suspense>
+      )}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
@@ -15,10 +16,12 @@ STEAM_APP_RE = re.compile(r"store\.steampowered\.com/app/(\d+)")
 
 # Scraper backoff: skip dead sources after N consecutive failures
 _scraper_cooldowns: dict[str, float] = {}
+_scraper_cooldowns_lock = threading.Lock()
 SCRAPER_BACKOFF_MINUTES = 120  # skip for 2 hours after failure
 
 def _should_skip_scraper(name: str) -> bool:
-    last_fail = _scraper_cooldowns.get(name, 0)
+    with _scraper_cooldowns_lock:
+        last_fail = _scraper_cooldowns.get(name, 0)
     if last_fail == 0:
         return False
     elapsed = time.time() - last_fail
@@ -28,14 +31,16 @@ def _should_skip_scraper(name: str) -> bool:
     return False
 
 def _record_scraper_failure(name: str):
-    was_active = name not in _scraper_cooldowns
-    _scraper_cooldowns[name] = time.time()
+    with _scraper_cooldowns_lock:
+        was_active = name not in _scraper_cooldowns
+        _scraper_cooldowns[name] = time.time()
     logger.info(f"{name}: recorded failure, entering cooldown")
     if was_active:
         _notify_scraper_cooldown(name)
 
 def _record_scraper_success(name: str):
-    _scraper_cooldowns.pop(name, None)
+    with _scraper_cooldowns_lock:
+        _scraper_cooldowns.pop(name, None)
 
 
 def _notify_scraper_cooldown(name: str):
@@ -303,7 +308,7 @@ def run_scrapers_once(reddit_scraper=None):
                             entry.error_message = "Demo/trial"
                             db.commit()
                             continue
-                        _redeem_key_on_bots(asf, entry.id, entry.code, bots_to_try, db)
+                        _redeem_key_on_bots(asf, entry.id, entry.code, bots_to_try)
                     except Exception as e:
                         logger.error(f"ASF redeem error for {entry.code}: {e}")
 
@@ -347,7 +352,7 @@ def run_scrapers_once(reddit_scraper=None):
                             db.commit()
                             continue
                         sub_id = f"sub/{sub_id}"
-                        _add_free_game_on_bots(asf, entry.id, app_id, sub_id, bots_to_try, db)
+                        _add_free_game_on_bots(asf, entry.id, app_id, sub_id, bots_to_try)
                     except Exception as e:
                         logger.error(f"Free game add error for {entry.code}: {e}")
 
@@ -360,8 +365,8 @@ def run_scrapers_once(reddit_scraper=None):
         db.close()
 
 
-def _redeem_key_on_bots(asf, entry_id, code, bots_to_try, db):
-    db.commit()
+def _redeem_key_on_bots(asf, entry_id, code, bots_to_try):
+    from .database import SessionLocal, FoundCode
     codes = [c.strip() for c in code.replace(",", " ").split()]
     redeemed_on_any = False
     already_on_any = False
@@ -380,23 +385,25 @@ def _redeem_key_on_bots(asf, entry_id, code, bots_to_try, db):
                 else:
                     last_error = msg
                     logger.warning(f"ASF failed: {key} on {bot} -> {msg}")
-                    
-    from .database import FoundCode
-    entry = db.query(FoundCode).filter(FoundCode.id == entry_id).first()
-    if entry:
-        if redeemed_on_any or already_on_any:
-            entry.status = "redeemed"
-            entry.redeemed_at = datetime.now(timezone.utc)
-            entry.error_message = None
-        else:
-            entry.status = "failed"
-            entry.error_message = last_error
-        db.commit()
+    db = SessionLocal()
+    try:
+        entry = db.query(FoundCode).filter(FoundCode.id == entry_id).first()
+        if entry:
+            if redeemed_on_any or already_on_any:
+                entry.status = "redeemed"
+                entry.redeemed_at = datetime.now(timezone.utc)
+                entry.error_message = None
+            else:
+                entry.status = "failed"
+                entry.error_message = last_error
+            db.commit()
+    finally:
+        db.close()
     return redeemed_on_any or already_on_any
 
 
-def _add_free_game_on_bots(asf, entry_id, app_id, sub_id, bots_to_try, db):
-    db.commit()
+def _add_free_game_on_bots(asf, entry_id, app_id, sub_id, bots_to_try):
+    from .database import SessionLocal, FoundCode
     added_on_any = False
     already_on_any = False
     last_msg = ""
@@ -412,18 +419,20 @@ def _add_free_game_on_bots(asf, entry_id, app_id, sub_id, bots_to_try, db):
         else:
             last_msg = msg
             logger.warning(f"Free game failed app/{app_id} on {bot}: {msg}")
-            
-    from .database import FoundCode
-    entry = db.query(FoundCode).filter(FoundCode.id == entry_id).first()
-    if entry:
-        if added_on_any or already_on_any:
-            entry.status = "redeemed"
-            entry.redeemed_at = datetime.now(timezone.utc)
-            entry.error_message = None
-        else:
-            entry.status = "failed"
-            entry.error_message = last_msg[:200]
-        db.commit()
+    db = SessionLocal()
+    try:
+        entry = db.query(FoundCode).filter(FoundCode.id == entry_id).first()
+        if entry:
+            if added_on_any or already_on_any:
+                entry.status = "redeemed"
+                entry.redeemed_at = datetime.now(timezone.utc)
+                entry.error_message = None
+            else:
+                entry.status = "failed"
+                entry.error_message = last_msg[:200]
+            db.commit()
+    finally:
+        db.close()
     return added_on_any or already_on_any
 
 def start_scheduler():

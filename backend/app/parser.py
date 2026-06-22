@@ -1,7 +1,7 @@
 import re
 
 STEAM_KEY_PATTERN = re.compile(
-    r'\b[A-Z0-9\?]{5}(?:-[A-Z0-9\?]{5}){2,4}\b'
+    r'\b[A-Z0-9\?]{5}(?:-[A-Z0-9\?]{5}){2}\b'
 )
 
 STEAM_GIFT_URL_PATTERN = re.compile(

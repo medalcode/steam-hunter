@@ -23,7 +23,7 @@ fi
 # ─── 2. Instalar ASF nativo ─────────────────────────────────
 echo "[2/5] Configurando ASF nativo..."
 if [ ! -f "$ASF_DIR/ArchiSteamFarm" ]; then
-  ASF_VERSION="6.3.5.1"
+  ASF_VERSION="6.3.6.1"
   ARCH="linux-x64"
   [ "$(uname -m)" = "aarch64" ] && ARCH="linux-arm64"
   ASF_URL="https://github.com/JustArchiNET/ArchiSteamFarm/releases/download/${ASF_VERSION}/ArchiSteamFarm-${ASF_VERSION}-${ARCH}.zip"
@@ -104,6 +104,7 @@ fi
 export ASF_AUTO_REDEEM=true
 
 cd "$REPO_DIR"
+docker compose -f docker-compose.full.yml pull
 docker compose -f docker-compose.full.yml build
 echo "  Imagenes construidas"
 

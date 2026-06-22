@@ -1,14 +1,18 @@
 services:
   asf:
-    image: justarchi/archisteamfarm:latest
+    image: justarchi/archisteamfarm:v6.3.6.1
     container_name: asf
-    ports:
-      - "127.0.0.1:1242:1242"
     volumes:
       - ./asf-config:/app/config
     environment:
       - ASF_USER=medalcode
       - ASF_HEADLESS=true
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:1242/api"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
     network_mode: host
 
@@ -31,7 +35,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
     depends_on:
       - backend
     restart: unless-stopped
